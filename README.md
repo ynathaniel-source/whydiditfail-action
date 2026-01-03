@@ -4,6 +4,11 @@
 
 [![GitHub Marketplace](https://img.shields.io/badge/Marketplace-Why%20Did%20It%20Fail-blue?logo=github)](https://github.com/marketplace/actions/whydiditfail)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+![No API Keys](https://img.shields.io/badge/No%20API%20Keys-Needed-brightgreen)
+![Open Source](https://img.shields.io/badge/Open-Source-orange)
+![Free Tier](https://img.shields.io/badge/Free-20%2Fmonth-blue)
+
+**🔒 No Secrets. No Code Sent. Only Failure Logs Analyzed.**
 
 ## 🎯 What It Does
 
@@ -41,65 +46,9 @@ jobs:
 
 That's it! No API keys, no secrets, no deployment needed.
 
-### Advanced Usage
+### 📊 Example Output
 
-Customize the behavior with optional inputs:
-
-```yaml
-- name: Explain failure with custom settings
-  if: failure()
-  uses: ynathaniel-source/whydiditfail-action@v1
-  with:
-    mode: summary              # or 'comment' for PR comments
-    max_log_kb: 500           # increase log size limit
-    redact: true              # redact secrets (recommended)
-```
-
-### Self-Hosted Service
-
-Want to use your own service? Just provide the URL:
-
-```yaml
-- name: Explain failure
-  if: failure()
-  uses: ynathaniel-source/whydiditfail-action@v1
-  with:
-    service_url: ${{ secrets.WHYDIDITFAIL_SERVICE_URL }}
-```
-
-## 📋 Inputs
-
-| Input | Required | Default | Description |
-|-------|----------|---------|-------------|
-| `github_token` | No | `${{ github.token }}` | GitHub token for authentication (auto-configured) |
-| `service_url` | No | `https://api.whydiditfail.com` | URL of the analysis service (uses hosted service by default) |
-| `mode` | No | `summary` | Output mode: `summary` (job summary) or `comment` (PR comment) |
-| `max_log_kb` | No | `400` | Maximum log size in KB to send to service (hard cap: 400 KB) |
-| `redact` | No | `true` | Redact secrets from logs before analysis |
-
-### ⚠️ Cost Protection & Limits
-
-To prevent runaway costs, the action enforces these limits:
-
-- **Log size**: Truncated to 400 KB max (keeps last N bytes, most relevant for errors)
-- **Request size**: Total payload capped at 450 KB (includes metadata)
-- **No retries**: Failed requests are not retried automatically
-- **Rate limits**: Free tier allows 20 analyses per repository per month
-- **Timeout**: Requests timeout after 60 seconds
-
-If you hit rate limits (HTTP 429), the action will fail with a clear message. No tokens are consumed for skipped or rate-limited requests.
-
-## 🔐 Authentication
-
-**No API keys required!** The action uses GitHub's built-in authentication:
-
-- Uses `GITHUB_TOKEN` automatically (no configuration needed)
-- Token is sent as a Bearer token to verify the request
-- Only failure logs are analyzed - no repository contents are accessed
-
-## 📊 Example Output
-
-When a workflow fails, you'll see a summary like this:
+When a workflow fails, you'll see a summary like this in your GitHub Actions UI:
 
 ```markdown
 ## 🔍 Failure Analysis
@@ -128,6 +77,60 @@ The build failed because `node-sass` requires Python 2.7, but the runner has Pyt
 - Line 47: `gyp ERR! Python is not set from command line or npm configuration`
 ```
 
+### Advanced Usage
+
+Customize the behavior with optional inputs:
+
+```yaml
+- name: Explain failure with custom settings
+  if: failure()
+  uses: ynathaniel-source/whydiditfail-action@v1
+  with:
+    mode: summary              # or 'comment' for PR comments
+    max_log_kb: 500           # increase log size limit
+    redact: true              # redact secrets (recommended)
+```
+
+#### Self-Hosted Service
+
+Want to use your own service? Just provide the URL:
+
+```yaml
+- name: Explain failure
+  if: failure()
+  uses: ynathaniel-source/whydiditfail-action@v1
+  with:
+    service_url: ${{ secrets.WHYDIDITFAIL_SERVICE_URL }}
+```
+
+## 📋 Inputs
+
+| Input | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `github_token` | No | `${{ github.token }}` | GitHub token for authentication (auto-configured) |
+| `service_url` | No | `https://api.whydiditfail.com` | URL of the analysis service (uses hosted service by default) |
+| `mode` | No | `summary` | Output mode: `summary` (job summary) or `comment` (PR comment) |
+| `max_log_kb` | No | `400` | Maximum log size in KB to send to service (hard cap: 400 KB) |
+| `redact` | No | `true` | Redact secrets from logs before analysis |
+
+## 💡 Limits & Fair Use
+
+We want everyone to benefit from AI-powered debugging, so we've set some reasonable limits:
+
+- **Free tier**: 20 failure analyses per repository per month
+- **Log size**: We analyze the last 400 KB of logs (where errors usually are)
+- **Response time**: Analysis completes in under 60 seconds
+
+These limits keep the service fast and reliable for everyone. If you need more, consider self-hosting or reach out to discuss options.
+
+## 🔐 Authentication
+
+**No API keys required!** The action uses GitHub's built-in authentication:
+
+- Uses `GITHUB_TOKEN` automatically (no configuration needed)
+- Token is sent as a Bearer token to verify the request
+- Only failure logs are analyzed - no repository contents are accessed
+
 ## 🎨 Output Modes
 
 ### Summary Mode (Default)
@@ -150,11 +153,13 @@ Posts a comment on the PR (if triggered by a PR).
 
 ## 🔒 Privacy & Security
 
-- ✅ **No API keys or signup required** - uses GitHub's built-in authentication
-- ✅ **Secrets are redacted** from logs before analysis
-- ✅ **No logs are stored** - analysis is ephemeral
-- ✅ **No repository access** - only failure logs are analyzed
-- ✅ **Open source** - audit the code yourself
+Your code and data are safe:
+
+- ✅ **We never store your logs** - Analysis is ephemeral and discarded immediately
+- ✅ **We never access your code** - Only failure logs are sent, never repository contents
+- ✅ **Secrets are automatically redacted** - Common patterns filtered before analysis
+- ✅ **No API keys or signup required** - Uses GitHub's built-in authentication
+- ✅ **Open source** - Audit the code yourself, or self-host for complete control
 
 ## 🛠️ Development
 

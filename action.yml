@@ -1,5 +1,5 @@
 name: "WhyDidItFail"
-description: "AI-powered GitHub Actions failure analysis with root cause and fix suggestions"
+description: "Get root-cause explanations and actionable fixes for GitHub Actions failures"
 author: "whydiditfail"
 branding:
   icon: "alert-circle"
