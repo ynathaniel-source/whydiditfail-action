@@ -17,16 +17,9 @@ When your GitHub Actions workflow fails, this action automatically:
 
 ## 🚀 Quick Start
 
-### Prerequisites
+### Installation
 
-1. **Deploy the service** (see [service repo](https://github.com/ynathaniel-source/whydiditfail-service))
-2. **Add service URL to secrets**: `Settings → Secrets → Actions → New secret`
-   - Name: `WHYDIDITFAIL_SERVICE_URL`
-   - Value: Your deployed service URL (e.g., `https://your-api.execute-api.us-east-1.amazonaws.com`)
-
-### Basic Usage
-
-Add this to your workflow after any step that might fail:
+Just add this to your workflow - **no setup required**:
 
 ```yaml
 name: CI
@@ -44,54 +37,65 @@ jobs:
       - name: Explain failure
         if: failure()
         uses: ynathaniel-source/whydiditfail-action@v1
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          service_url: ${{ secrets.WHYDIDITFAIL_SERVICE_URL }}
 ```
 
+That's it! No API keys, no secrets, no deployment needed.
+
 ### Advanced Usage
+
+Customize the behavior with optional inputs:
 
 ```yaml
 - name: Explain failure with custom settings
   if: failure()
   uses: ynathaniel-source/whydiditfail-action@v1
   with:
-    github_token: ${{ secrets.GITHUB_TOKEN }}
-    service_url: ${{ secrets.WHYDIDITFAIL_SERVICE_URL }}
     mode: summary              # or 'comment' for PR comments
     max_log_kb: 500           # increase log size limit
     redact: true              # redact secrets (recommended)
+```
+
+### Self-Hosted Service
+
+Want to use your own service? Just provide the URL:
+
+```yaml
+- name: Explain failure
+  if: failure()
+  uses: ynathaniel-source/whydiditfail-action@v1
+  with:
+    service_url: ${{ secrets.WHYDIDITFAIL_SERVICE_URL }}
 ```
 
 ## 📋 Inputs
 
 | Input | Required | Default | Description |
 |-------|----------|---------|-------------|
-| `github_token` | ✅ Yes | - | GitHub token for API access (use `${{ secrets.GITHUB_TOKEN }}`) |
-| `service_url` | ✅ Yes | - | URL of the deployed analysis service |
+| `github_token` | No | `${{ github.token }}` | GitHub token for authentication (auto-configured) |
+| `service_url` | No | `https://api.whydiditfail.com` | URL of the analysis service (uses hosted service by default) |
 | `mode` | No | `summary` | Output mode: `summary` (job summary) or `comment` (PR comment) |
-| `max_log_kb` | No | `400` | Maximum log size in KB to send to service |
+| `max_log_kb` | No | `400` | Maximum log size in KB to send to service (hard cap: 400 KB) |
 | `redact` | No | `true` | Redact secrets from logs before analysis |
 
-## 🔧 Setup
+### ⚠️ Cost Protection & Limits
 
-### 1. Deploy the Service
+To prevent runaway costs, the action enforces these limits:
 
-You need to deploy the analysis service (private repo). See the [service deployment guide](https://github.com/ynathaniel-source/whydiditfail-service#deployment).
+- **Log size**: Truncated to 400 KB max (keeps last N bytes, most relevant for errors)
+- **Request size**: Total payload capped at 450 KB (includes metadata)
+- **No retries**: Failed requests are not retried automatically
+- **Rate limits**: Free tier allows 20 analyses per repository per month
+- **Timeout**: Requests timeout after 60 seconds
 
-### 2. Add Service URL to Secrets
+If you hit rate limits (HTTP 429), the action will fail with a clear message. No tokens are consumed for skipped or rate-limited requests.
 
-Once deployed, add the service URL to your repository secrets:
+## 🔐 Authentication
 
-```
-Settings → Secrets and variables → Actions → New repository secret
-Name: WHYDIDITFAIL_SERVICE_URL
-Value: https://your-service-url.com
-```
+**No API keys required!** The action uses GitHub's built-in authentication:
 
-### 3. Add Action to Workflow
-
-Use the action in your workflow with `if: failure()` to run only when a step fails.
+- Uses `GITHUB_TOKEN` automatically (no configuration needed)
+- Token is sent as a Bearer token to verify the request
+- Only failure logs are analyzed - no repository contents are accessed
 
 ## 📊 Example Output
 
@@ -144,12 +148,13 @@ Posts a comment on the PR (if triggered by a PR).
     mode: comment
 ```
 
-## 🔒 Security
+## 🔒 Privacy & Security
 
-- **Secrets are redacted** from logs before analysis
-- **No logs are stored** by the service
-- **Analysis is ephemeral** - results are returned immediately
-- **GitHub token** is only used to fetch logs and post results
+- ✅ **No API keys or signup required** - uses GitHub's built-in authentication
+- ✅ **Secrets are redacted** from logs before analysis
+- ✅ **No logs are stored** - analysis is ephemeral
+- ✅ **No repository access** - only failure logs are analyzed
+- ✅ **Open source** - audit the code yourself
 
 ## 🛠️ Development
 

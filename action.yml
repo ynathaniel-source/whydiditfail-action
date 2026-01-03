@@ -6,11 +6,13 @@ branding:
   color: "red"
 inputs:
   github_token:
-    description: "GitHub token for fetching logs (use secrets.GITHUB_TOKEN)"
-    required: true
+    description: "GitHub token for authentication (defaults to secrets.GITHUB_TOKEN)"
+    required: false
+    default: ${{ github.token }}
   service_url:
-    description: "Base URL of the explanation service (required - deploy the service first)"
-    required: true
+    description: "Base URL of the explanation service (uses hosted service by default)"
+    required: false
+    default: "https://api.whydiditfail.com"
   mode:
     description: "Output mode: 'summary' (job summary) or 'comment' (PR comment)"
     required: false
