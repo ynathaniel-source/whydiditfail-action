@@ -1,0 +1,28 @@
+name: "WhyDidItFail"
+description: "AI-powered GitHub Actions failure analysis with root cause and fix suggestions"
+author: "whydiditfail"
+branding:
+  icon: "alert-circle"
+  color: "red"
+inputs:
+  github_token:
+    description: "GitHub token for fetching logs (use secrets.GITHUB_TOKEN)"
+    required: true
+  service_url:
+    description: "Base URL of the explanation service (required - deploy the service first)"
+    required: true
+  mode:
+    description: "Output mode: 'summary' (job summary) or 'comment' (PR comment)"
+    required: false
+    default: "summary"
+  max_log_kb:
+    description: "Maximum log size in KB to send to service"
+    required: false
+    default: "400"
+  redact:
+    description: "Redact common secrets from logs before analysis"
+    required: false
+    default: "true"
+runs:
+  using: "node20"
+  main: "dist/index.js"

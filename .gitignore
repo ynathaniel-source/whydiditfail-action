@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# Build outputs (DO NOT ignore dist/ - it must be committed for GitHub Actions)
+# dist/ is intentionally NOT ignored
+
+# TypeScript
+*.tsbuildinfo
+
+# Testing
+coverage/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+.env.*.local
