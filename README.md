@@ -1,6 +1,6 @@
 # Why Did It Fail? - GitHub Action
 
-> Turn GitHub Actions failures into clear root-cause explanations and actionable fixes.
+> Turn GitHub Actions failures into clear root-cause explanations + fixes.
 
 [![GitHub Marketplace](https://img.shields.io/badge/Marketplace-Why%20Did%20It%20Fail-blue?logo=github)](https://github.com/marketplace/actions/whydiditfail)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -79,6 +79,16 @@ When your GitHub Actions workflow fails, this action automatically:
 
 Ideal for teams tired of debugging flaky CI failures and dependency issues.
 
+## 🔒 Privacy & Security
+
+Your code and data are safe:
+
+- ✅ **We never store your logs** - Analysis is ephemeral and discarded immediately
+- ✅ **We never access your code** - Only failure logs are sent, never repository contents
+- ✅ **Secrets are automatically redacted** - Common patterns filtered before analysis
+- ✅ **No API keys or signup required** - Uses GitHub's built-in authentication
+- ✅ **Open source** - Audit the code yourself, or self-host for complete control
+
 ## 📋 Inputs / Advanced Usage
 
 Customize the behavior with optional inputs:
@@ -103,6 +113,18 @@ Customize the behavior with optional inputs:
 | `max_log_kb` | No | `400` | Maximum log size in KB to send to service (hard cap: 400 KB) |
 | `redact` | No | `true` | Redact secrets from logs before analysis |
 
+---
+
+## Advanced Topics
+
+### Safe by default (cost & usage controls)
+
+To keep usage predictable and safe, WhyDidItFail includes built-in limits. These never fail your workflow and only affect how much context is analyzed.
+
+- **Free tier**: 20 failure analyses per repository per month
+- **Log size**: We analyze the last 400 KB of logs (where errors usually are)
+- **Response time**: Analysis completes in under 60 seconds
+
 ### Self-Hosted Service
 
 Want to use your own service? Just provide the URL:
@@ -114,24 +136,6 @@ Want to use your own service? Just provide the URL:
   with:
     service_url: ${{ secrets.WHYDIDITFAIL_SERVICE_URL }}
 ```
-
-## Safe by default (cost & usage controls)
-
-To keep usage predictable and safe, WhyDidItFail includes built-in limits. These never fail your workflow and only affect how much context is analyzed.
-
-- **Free tier**: 20 failure analyses per repository per month
-- **Log size**: We analyze the last 400 KB of logs (where errors usually are)
-- **Response time**: Analysis completes in under 60 seconds
-
-## 🔒 Privacy & Security
-
-Your code and data are safe:
-
-- ✅ **We never store your logs** - Analysis is ephemeral and discarded immediately
-- ✅ **We never access your code** - Only failure logs are sent, never repository contents
-- ✅ **Secrets are automatically redacted** - Common patterns filtered before analysis
-- ✅ **No API keys or signup required** - Uses GitHub's built-in authentication
-- ✅ **Open source** - Audit the code yourself, or self-host for complete control
 
 ## 🛠️ Development
 
