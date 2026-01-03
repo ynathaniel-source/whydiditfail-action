@@ -1,28 +1,16 @@
 # Why Did It Fail? - GitHub Action
 
-> AI-powered GitHub Actions failure analysis that explains *why* your workflow failed and *how* to fix it.
+> Turn GitHub Actions failures into clear root-cause explanations and actionable fixes.
 
 [![GitHub Marketplace](https://img.shields.io/badge/Marketplace-Why%20Did%20It%20Fail-blue?logo=github)](https://github.com/marketplace/actions/whydiditfail)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-![No API Keys](https://img.shields.io/badge/No%20API%20Keys-Needed-brightgreen)
-![Open Source](https://img.shields.io/badge/Open-Source-orange)
-![Free Tier](https://img.shields.io/badge/Free-20%2Fmonth-blue)
+![No API Keys](https://img.shields.io/badge/No%20API%20Keys-Required-brightgreen)
+![Free to Try](https://img.shields.io/badge/Free-to%20try-blue)
+![Open Source Action](https://img.shields.io/badge/Open%20Source-Action-orange)
 
-**🔒 No Secrets. No Code Sent. Only Failure Logs Analyzed.**
-
-## 🎯 What It Does
-
-When your GitHub Actions workflow fails, this action automatically:
-1. 🔍 Fetches the failure logs
-2. 🤖 Analyzes them with AI
-3. 📝 Posts a clear explanation with:
-   - **Root cause** (what went wrong)
-   - **Fix suggestions** (how to resolve it)
-   - **Confidence score** (how certain the AI is)
+No API keys. No access to your code. Only failure logs are analyzed.
 
 ## 🚀 Quick Start
-
-### Installation
 
 Just add this to your workflow - **no setup required**:
 
@@ -46,7 +34,9 @@ jobs:
 
 That's it! No API keys, no secrets, no deployment needed.
 
-### 📊 Example Output
+## What you'll see when CI fails
+
+Instead of scrolling logs, you get a concise explanation directly in the workflow summary.
 
 When a workflow fails, you'll see a summary like this in your GitHub Actions UI:
 
@@ -77,7 +67,19 @@ The build failed because `node-sass` requires Python 2.7, but the runner has Pyt
 - Line 47: `gyp ERR! Python is not set from command line or npm configuration`
 ```
 
-### Advanced Usage
+## 🎯 What It Does
+
+When your GitHub Actions workflow fails, this action automatically:
+1. 🔍 Fetches the failure logs
+2. 🤖 Analyzes them with AI
+3. 📝 Posts a clear explanation with:
+   - **Root cause** (what went wrong)
+   - **Fix suggestions** (how to resolve it)
+   - **Confidence score** (how certain the AI is)
+
+Ideal for teams tired of debugging flaky CI failures and dependency issues.
+
+## 📋 Inputs / Advanced Usage
 
 Customize the behavior with optional inputs:
 
@@ -91,7 +93,17 @@ Customize the behavior with optional inputs:
     redact: true              # redact secrets (recommended)
 ```
 
-#### Self-Hosted Service
+### All Available Inputs
+
+| Input | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `github_token` | No | `${{ github.token }}` | GitHub token for authentication (auto-configured) |
+| `service_url` | No | `https://api.whydiditfail.com` | URL of the analysis service (uses hosted service by default) |
+| `mode` | No | `summary` | Output mode: `summary` (job summary) or `comment` (PR comment) |
+| `max_log_kb` | No | `400` | Maximum log size in KB to send to service (hard cap: 400 KB) |
+| `redact` | No | `true` | Redact secrets from logs before analysis |
+
+### Self-Hosted Service
 
 Want to use your own service? Just provide the URL:
 
@@ -103,53 +115,13 @@ Want to use your own service? Just provide the URL:
     service_url: ${{ secrets.WHYDIDITFAIL_SERVICE_URL }}
 ```
 
-## 📋 Inputs
+## Safe by default (cost & usage controls)
 
-| Input | Required | Default | Description |
-|-------|----------|---------|-------------|
-| `github_token` | No | `${{ github.token }}` | GitHub token for authentication (auto-configured) |
-| `service_url` | No | `https://api.whydiditfail.com` | URL of the analysis service (uses hosted service by default) |
-| `mode` | No | `summary` | Output mode: `summary` (job summary) or `comment` (PR comment) |
-| `max_log_kb` | No | `400` | Maximum log size in KB to send to service (hard cap: 400 KB) |
-| `redact` | No | `true` | Redact secrets from logs before analysis |
-
-## 💡 Limits & Fair Use
-
-We want everyone to benefit from AI-powered debugging, so we've set some reasonable limits:
+To keep usage predictable and safe, WhyDidItFail includes built-in limits. These never fail your workflow and only affect how much context is analyzed.
 
 - **Free tier**: 20 failure analyses per repository per month
 - **Log size**: We analyze the last 400 KB of logs (where errors usually are)
 - **Response time**: Analysis completes in under 60 seconds
-
-These limits keep the service fast and reliable for everyone. If you need more, consider self-hosting or reach out to discuss options.
-
-## 🔐 Authentication
-
-**No API keys required!** The action uses GitHub's built-in authentication:
-
-- Uses `GITHUB_TOKEN` automatically (no configuration needed)
-- Token is sent as a Bearer token to verify the request
-- Only failure logs are analyzed - no repository contents are accessed
-
-## 🎨 Output Modes
-
-### Summary Mode (Default)
-Posts a job summary visible in the Actions UI.
-
-```yaml
-- uses: ynathaniel-source/whydiditfail-action@v1
-  with:
-    mode: summary
-```
-
-### Comment Mode
-Posts a comment on the PR (if triggered by a PR).
-
-```yaml
-- uses: ynathaniel-source/whydiditfail-action@v1
-  with:
-    mode: comment
-```
 
 ## 🔒 Privacy & Security
 
