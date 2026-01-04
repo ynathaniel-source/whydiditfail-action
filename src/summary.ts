@@ -54,6 +54,12 @@ export function formatSummary(explanation: any, ctx?: RenderContext): string {
 
   let summary = "# 🔍 Failure Analysis\n\n";
   
+  if (e.grace_period?.active) {
+    summary += "## ⚠️ Grace Period Active\n\n";
+    summary += `> **You've exceeded your monthly limit**, but you have **${e.grace_period.remaining}** grace analyses remaining.\n\n`;
+    summary += "---\n\n";
+  }
+
   summary += "<table>\n";
   summary += "<tr>\n";
   summary += `<td align="center"><strong>Confidence</strong><br/>${emoji} ${label}<br/><code>${confidencePercent}%</code></td>\n`;
@@ -61,10 +67,6 @@ export function formatSummary(explanation: any, ctx?: RenderContext): string {
   summary += `<td align="center"><strong>Est. Time to Fix</strong><br/>⏱️<br/><code>${timeToFix}</code></td>\n`;
   summary += "</tr>\n";
   summary += "</table>\n\n";
-
-  if (e.grace_period?.active) {
-    summary += "> ⚠️ **Grace Period Active**: You've exceeded your monthly limit but have **${e.grace_period.remaining}** grace analyses remaining.\n\n";
-  }
 
   if (confidence < 0.65) {
     summary += "> ⚠️ **Low Confidence Warning**: The analysis may be uncertain. Consider enabling debug logging for more details.\n\n";
