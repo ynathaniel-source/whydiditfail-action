@@ -2,8 +2,8 @@ name: "WhyDidItFail"
 description: "Turn GitHub Actions failures into clear root-cause explanations + fixes"
 author: "whydiditfail"
 branding:
-  icon: "alert-circle"
-  color: "red"
+  icon: "image"
+  color: "blue"
 inputs:
   github_token:
     description: "GitHub token for authentication (defaults to secrets.GITHUB_TOKEN)"
