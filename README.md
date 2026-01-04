@@ -80,6 +80,10 @@ When your GitHub Actions workflow fails, this action automatically:
    - **Root cause** (what went wrong)
    - **Fix suggestions** (how to resolve it)
    - **Confidence score** (how certain the AI is)
+4. 🔧 **Posts inline code fix suggestions** (for PRs and commits)
+   - One-click apply for PR reviews
+   - Direct commit comments for pushes
+   - Only for high-confidence, fixable errors
 
 Ideal for teams tired of debugging flaky CI failures and dependency issues.
 
@@ -116,6 +120,49 @@ Customize the behavior with optional inputs:
 | `mode` | No | `summary` | Output mode: `summary` (job summary) or `comment` (PR comment) |
 | `max_log_kb` | No | `400` | Maximum log size in KB to send to service (hard cap: 400 KB) |
 | `redact` | No | `true` | Redact secrets from logs before analysis |
+| `suggest_fixes` | No | `true` | Post inline fix suggestions as PR review comments or commit comments |
+
+---
+
+## 🔧 Inline Fix Suggestions
+
+WhyDidItFail can automatically post code fix suggestions for common errors:
+
+### For Pull Requests
+- **One-click apply**: Fix suggestions appear as PR review comments with GitHub's native suggestion syntax
+- **Just click "Apply suggestion"** and commit - no manual copy-paste needed
+- Works for compilation errors, missing imports, type errors, and more
+
+### For Direct Pushes
+- **Commit comments**: Fix suggestions are posted as comments on the failing commit
+- **Easy to find**: Check the commit page for detailed fix suggestions with code snippets
+
+### Disabling Fix Suggestions
+
+If you prefer not to have fix suggestions posted automatically:
+
+```yaml
+- name: Explain failure
+  if: failure()
+  uses: ynathaniel-source/whydiditfail-action@v1
+  with:
+    suggest_fixes: false  # Disable inline fix suggestions
+```
+
+### Required Permissions
+
+For fix suggestions to work, the action needs `pull-requests: write` permission:
+
+```yaml
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write  # Required for posting fix suggestions
+    steps:
+      # ... your steps
+```
 
 ---
 
@@ -125,7 +172,7 @@ Customize the behavior with optional inputs:
 
 To keep usage predictable and safe, WhyDidItFail includes built-in limits. These never fail your workflow and only affect how much context is analyzed.
 
-- **Free tier**: 20 failure analyses per repository per month
+- **Free tier**: 35 failure analyses per repository per month (20 standard + 15 grace period)
 - **Log size**: We analyze the last 400 KB of logs (where errors usually are)
 - **Response time**: Analysis completes in under 60 seconds
 

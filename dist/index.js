@@ -12968,7 +12968,7 @@ module.exports = {
 
 
 
-const { parseSetCookie } = __nccwpck_require__(1296)
+const { parseSetCookie } = __nccwpck_require__(8915)
 const { stringify } = __nccwpck_require__(3834)
 const { webidl } = __nccwpck_require__(4222)
 const { Headers } = __nccwpck_require__(6349)
@@ -13153,7 +13153,7 @@ module.exports = {
 
 /***/ }),
 
-/***/ 1296:
+/***/ 8915:
 /***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
 
 
@@ -31979,6 +31979,33 @@ function formatSummary(explanation, ctx) {
     }
     summary += "\n";
     summary += "---\n\n";
+    // Fix suggestions section
+    const fixSuggestions = Array.isArray(e.fix_suggestions) ? e.fix_suggestions : [];
+    if (fixSuggestions.length > 0) {
+        summary += "### 🔧 Code Fix Suggestions\n\n";
+        const isPR = process.env.GITHUB_EVENT_NAME === 'pull_request';
+        if (isPR) {
+            summary += "> 💡 **Inline suggestions posted to the PR.** Check the \"Files changed\" tab for one-click fixes.\n\n";
+        }
+        else {
+            summary += "> 💡 **Fix suggestions posted as commit comments.** Check the commit for details.\n\n";
+        }
+        fixSuggestions.forEach((fix, i) => {
+            const confidencePercent = Math.round((fix.confidence ?? 0) * 100);
+            summary += `**${i + 1}. ${fix.title || 'Suggested fix'}** (${confidencePercent}% confidence)\n\n`;
+            if (fix.rationale) {
+                summary += `${renderMd(fix.rationale)}\n\n`;
+            }
+            summary += `**File:** \`${fix.path}\` (lines ${fix.line_start}-${fix.line_end})\n\n`;
+            summary += "<details>\n";
+            summary += "  <summary>View suggested code</summary>\n\n";
+            summary += "```\n";
+            summary += fix.replacement;
+            summary += "\n```\n\n";
+            summary += "</details>\n\n";
+        });
+        summary += "---\n\n";
+    }
     // Error evidence section
     const snippets = Array.isArray(e.snippets) ? e.snippets : [];
     if (snippets.length > 0) {
@@ -32168,7 +32195,109 @@ function validatePayloadSize(payload) {
     core.info(`Request payload size: ${bytes} bytes`);
 }
 
+;// CONCATENATED MODULE: ./src/review-comments.ts
+
+
+async function postFixSuggestions(token, fixSuggestions) {
+    if (!fixSuggestions || fixSuggestions.length === 0) {
+        return { posted: 0, skipped: 0 };
+    }
+    const context = github.context;
+    const octokit = github.getOctokit(token);
+    const isPR = context.payload.pull_request !== undefined;
+    const commitSha = context.sha;
+    let posted = 0;
+    let skipped = 0;
+    if (isPR) {
+        posted = await postPRReviewComments(octokit, context, fixSuggestions, commitSha);
+    }
+    else {
+        posted = await postCommitComments(octokit, context, fixSuggestions, commitSha);
+    }
+    return { posted, skipped: fixSuggestions.length - posted };
+}
+async function postPRReviewComments(octokit, context, fixSuggestions, commitSha) {
+    const { owner, repo } = context.repo;
+    const pullNumber = context.payload.pull_request.number;
+    const comments = fixSuggestions.map(fix => {
+        const body = buildSuggestionBody(fix, true);
+        const comment = {
+            path: fix.path,
+            body,
+            line: fix.line_end
+        };
+        if (fix.line_start !== fix.line_end) {
+            comment.start_line = fix.line_start;
+        }
+        return comment;
+    });
+    try {
+        await octokit.rest.pulls.createReview({
+            owner,
+            repo,
+            pull_number: pullNumber,
+            commit_id: commitSha,
+            event: 'COMMENT',
+            comments
+        });
+        core.info(`Posted ${comments.length} inline fix suggestions to PR #${pullNumber}`);
+        return comments.length;
+    }
+    catch (error) {
+        core.warning(`Failed to post PR review comments: ${error}`);
+        return 0;
+    }
+}
+async function postCommitComments(octokit, context, fixSuggestions, commitSha) {
+    const { owner, repo } = context.repo;
+    let posted = 0;
+    for (const fix of fixSuggestions) {
+        try {
+            const body = buildSuggestionBody(fix, false);
+            await octokit.rest.repos.createCommitComment({
+                owner,
+                repo,
+                commit_sha: commitSha,
+                path: fix.path,
+                line: fix.line_end,
+                body
+            });
+            posted++;
+        }
+        catch (error) {
+            core.warning(`Failed to post commit comment for ${fix.path}: ${error}`);
+        }
+    }
+    if (posted > 0) {
+        core.info(`Posted ${posted} fix suggestions as commit comments`);
+    }
+    return posted;
+}
+function buildSuggestionBody(fix, useSuggestionSyntax) {
+    const title = fix.title || 'Suggested fix';
+    const rationale = fix.rationale || 'This change should resolve the error.';
+    const confidencePercent = Math.round(fix.confidence * 100);
+    let body = `## 🔧 ${title}\n\n`;
+    body += `**Confidence:** ${confidencePercent}%\n\n`;
+    body += `${rationale}\n\n`;
+    if (useSuggestionSyntax) {
+        body += '```suggestion\n';
+        body += fix.replacement;
+        body += '\n```\n';
+    }
+    else {
+        body += '**Suggested code:**\n\n';
+        body += '```\n';
+        body += fix.replacement;
+        body += '\n```\n';
+    }
+    body += '\n---\n';
+    body += '<sub>💡 Review this suggestion carefully before applying</sub>';
+    return body;
+}
+
 ;// CONCATENATED MODULE: ./src/index.ts
+
 
 
 
@@ -32181,6 +32310,7 @@ async function run() {
         const githubToken = core.getInput("github_token") || process.env.GITHUB_TOKEN;
         const maxLogKb = Number(core.getInput("max_log_kb") || "400");
         const mode = core.getInput("mode") || "summary";
+        const suggestFixes = core.getInput("suggest_fixes") !== "false";
         const logs = await fetchJobLogsBestEffort(maxLogKb, githubToken);
         const payload = {
             repo: github.context.payload.repository?.full_name ?? github.context.repo.owner + "/" + github.context.repo.repo,
@@ -32202,6 +32332,15 @@ async function run() {
             core.warning(`mode=${mode} not implemented in scaffold; using summary`);
         }
         await postSummary(result);
+        if (suggestFixes && result.fix_suggestions && result.fix_suggestions.length > 0 && githubToken) {
+            const { posted, skipped } = await postFixSuggestions(githubToken, result.fix_suggestions);
+            if (posted > 0) {
+                core.info(`✅ Posted ${posted} fix suggestion(s)`);
+            }
+            if (skipped > 0) {
+                core.info(`⏭️  Skipped ${skipped} fix suggestion(s)`);
+            }
+        }
     }
     catch (err) {
         core.setFailed(err?.message ?? String(err));

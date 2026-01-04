@@ -25,6 +25,10 @@ inputs:
     description: "Redact common secrets from logs before analysis"
     required: false
     default: "true"
+  suggest_fixes:
+    description: "Post inline fix suggestions as PR review comments or commit comments"
+    required: false
+    default: "true"
 runs:
   using: "node20"
   main: "dist/index.js"

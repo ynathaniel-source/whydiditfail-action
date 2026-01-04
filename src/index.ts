@@ -4,6 +4,7 @@ import { fetchJobLogsBestEffort } from "./logs.js";
 import { postSummary } from "./summary.js";
 import { explainFailure } from "./client.js";
 import { validatePayloadSize } from "./logLimits.js";
+import { postFixSuggestions } from "./review-comments.js";
 
 async function run() {
   try {
@@ -11,6 +12,7 @@ async function run() {
     const githubToken = core.getInput("github_token") || process.env.GITHUB_TOKEN;
     const maxLogKb = Number(core.getInput("max_log_kb") || "400");
     const mode = core.getInput("mode") || "summary";
+    const suggestFixes = core.getInput("suggest_fixes") !== "false";
 
     const logs = await fetchJobLogsBestEffort(maxLogKb, githubToken);
 
@@ -38,6 +40,16 @@ async function run() {
     }
 
     await postSummary(result);
+
+    if (suggestFixes && result.fix_suggestions && result.fix_suggestions.length > 0 && githubToken) {
+      const { posted, skipped } = await postFixSuggestions(githubToken, result.fix_suggestions);
+      if (posted > 0) {
+        core.info(`✅ Posted ${posted} fix suggestion(s)`);
+      }
+      if (skipped > 0) {
+        core.info(`⏭️  Skipped ${skipped} fix suggestion(s)`);
+      }
+    }
   } catch (err: any) {
     core.setFailed(err?.message ?? String(err));
   }

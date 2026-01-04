@@ -127,6 +127,39 @@ export function formatSummary(explanation: any, ctx?: RenderContext): string {
 
   summary += "---\n\n";
 
+  // Fix suggestions section
+  const fixSuggestions = Array.isArray(e.fix_suggestions) ? e.fix_suggestions : [];
+  if (fixSuggestions.length > 0) {
+    summary += "### 🔧 Code Fix Suggestions\n\n";
+    
+    const isPR = process.env.GITHUB_EVENT_NAME === 'pull_request';
+    if (isPR) {
+      summary += "> 💡 **Inline suggestions posted to the PR.** Check the \"Files changed\" tab for one-click fixes.\n\n";
+    } else {
+      summary += "> 💡 **Fix suggestions posted as commit comments.** Check the commit for details.\n\n";
+    }
+
+    fixSuggestions.forEach((fix: any, i: number) => {
+      const confidencePercent = Math.round((fix.confidence ?? 0) * 100);
+      summary += `**${i + 1}. ${fix.title || 'Suggested fix'}** (${confidencePercent}% confidence)\n\n`;
+      
+      if (fix.rationale) {
+        summary += `${renderMd(fix.rationale)}\n\n`;
+      }
+      
+      summary += `**File:** \`${fix.path}\` (lines ${fix.line_start}-${fix.line_end})\n\n`;
+      
+      summary += "<details>\n";
+      summary += "  <summary>View suggested code</summary>\n\n";
+      summary += "```\n";
+      summary += fix.replacement;
+      summary += "\n```\n\n";
+      summary += "</details>\n\n";
+    });
+
+    summary += "---\n\n";
+  }
+
   // Error evidence section
   const snippets = Array.isArray(e.snippets) ? e.snippets : [];
   if (snippets.length > 0) {
