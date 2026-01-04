@@ -31919,6 +31919,22 @@ function formatSummary(explanation, ctx) {
         summary += `> **You've exceeded your monthly limit**, but you have **${e.grace_period.remaining}** grace analyses remaining.\n\n`;
         summary += "---\n\n";
     }
+    else if (e.remaining !== undefined && e.remaining < 35) {
+        summary += "## 📊 Usage Alert\n\n";
+        summary += `> **${e.remaining} of ${e.limit ?? 35}** analyses remaining this month.\n\n`;
+        if (e.reset_at) {
+            const resetDate = new Date(e.reset_at);
+            summary += `> Resets on ${resetDate.toLocaleString('en-US', {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+                timeZoneName: 'short'
+            })}\n\n`;
+        }
+        summary += "---\n\n";
+    }
     summary += "<table>\n";
     summary += "<tr>\n";
     summary += `<td align="center"><strong>Confidence</strong><br/>${emoji} ${label}<br/><code>${confidencePercent}%</code></td>\n`;
@@ -32099,6 +32115,15 @@ async function explainFailure(serviceUrl, payload, githubToken) {
                 `Reason: ${result.reason || "Low confidence or insufficient signal"}. ` +
                 `No tokens were consumed.`);
         }
+        const limit = res.headers.get('x-ratelimit-limit');
+        const remaining = res.headers.get('x-ratelimit-remaining');
+        const resetAt = res.headers.get('x-ratelimit-reset');
+        if (limit)
+            result.limit = parseInt(limit, 10);
+        if (remaining)
+            result.remaining = parseInt(remaining, 10);
+        if (resetAt)
+            result.reset_at = new Date(parseInt(resetAt, 10) * 1000).toISOString();
         const inGracePeriod = res.headers.get('x-ratelimit-grace-period') === 'true';
         const graceRemaining = res.headers.get('x-ratelimit-grace-remaining');
         if (inGracePeriod && graceRemaining) {

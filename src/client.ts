@@ -62,6 +62,14 @@ export async function explainFailure(serviceUrl: string, payload: any, githubTok
       );
     }
     
+    const limit = res.headers.get('x-ratelimit-limit');
+    const remaining = res.headers.get('x-ratelimit-remaining');
+    const resetAt = res.headers.get('x-ratelimit-reset');
+    
+    if (limit) result.limit = parseInt(limit, 10);
+    if (remaining) result.remaining = parseInt(remaining, 10);
+    if (resetAt) result.reset_at = new Date(parseInt(resetAt, 10) * 1000).toISOString();
+    
     const inGracePeriod = res.headers.get('x-ratelimit-grace-period') === 'true';
     const graceRemaining = res.headers.get('x-ratelimit-grace-remaining');
     

@@ -58,6 +58,21 @@ export function formatSummary(explanation: any, ctx?: RenderContext): string {
     summary += "## ⚠️ Grace Period Active\n\n";
     summary += `> **You've exceeded your monthly limit**, but you have **${e.grace_period.remaining}** grace analyses remaining.\n\n`;
     summary += "---\n\n";
+  } else if (e.remaining !== undefined && e.remaining < 35) {
+    summary += "## 📊 Usage Alert\n\n";
+    summary += `> **${e.remaining} of ${e.limit ?? 35}** analyses remaining this month.\n\n`;
+    if (e.reset_at) {
+      const resetDate = new Date(e.reset_at);
+      summary += `> Resets on ${resetDate.toLocaleString('en-US', { 
+        month: 'short', 
+        day: 'numeric', 
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        timeZoneName: 'short'
+      })}\n\n`;
+    }
+    summary += "---\n\n";
   }
 
   summary += "<table>\n";
