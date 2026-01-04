@@ -1,7 +1,7 @@
 import * as core from "@actions/core";
 import * as github from "@actions/github";
 import fs from "node:fs";
-export async function fetchJobLogsBestEffort(maxLogKb) {
+export async function fetchJobLogsBestEffort(maxLogKb, token) {
     const path = process.env.WHYDIDITFAIL_LOG_PATH;
     if (path && fs.existsSync(path)) {
         core.info(`Using logs from file: ${path}`);
@@ -10,7 +10,7 @@ export async function fetchJobLogsBestEffort(maxLogKb) {
     }
     try {
         core.info("Fetching logs from GitHub API");
-        const logs = await fetchLogsFromGitHub();
+        const logs = await fetchLogsFromGitHub(token);
         return truncate(logs, maxLogKb * 1024);
     }
     catch (error) {
@@ -18,58 +18,43 @@ export async function fetchJobLogsBestEffort(maxLogKb) {
         return truncate("Failed to fetch logs. Ensure GITHUB_TOKEN has appropriate permissions.", maxLogKb * 1024);
     }
 }
-async function fetchLogsFromGitHub() {
-    const token = core.getInput("github_token", { required: true });
-    if (!token) {
-        throw new Error("github_token input is required to fetch logs");
+async function fetchLogsFromGitHub(token) {
+    const githubToken = token || process.env.GITHUB_TOKEN;
+    if (!githubToken) {
+        throw new Error("GITHUB_TOKEN is required to fetch logs");
     }
     const context = github.context;
-    const octokit = github.getOctokit(token);
+    const octokit = github.getOctokit(githubToken);
     const runId = context.runId;
     const { owner, repo } = context.repo;
+    const currentJobName = context.job;
     core.info(`Fetching jobs for run ${runId} in ${owner}/${repo}`);
     const { data: jobs } = await octokit.rest.actions.listJobsForWorkflowRun({
         owner,
         repo,
         run_id: runId,
     });
-    const failedJobs = jobs.jobs.filter((job) => job.status === "completed" && job.conclusion === "failure");
-    if (failedJobs.length === 0) {
-        core.warning("No failed jobs found in this workflow run");
-        return "No failed jobs found";
+    const currentJob = jobs.jobs.find((job) => job.name === currentJobName);
+    if (!currentJob) {
+        core.warning(`Could not find current job: ${currentJobName}`);
+        return `Could not find logs for job: ${currentJobName}`;
     }
-    core.info(`Found ${failedJobs.length} failed job(s)`);
-    const logPromises = failedJobs.map(async (job) => {
-        try {
-            core.info(`Downloading logs for job: ${job.name} (${job.id})`);
-            const logResponse = await octokit.rest.actions.downloadJobLogsForWorkflowRun({
-                owner,
-                repo,
-                job_id: job.id,
-            });
-            const logs = typeof logResponse.data === 'string'
-                ? logResponse.data
-                : Buffer.from(logResponse.data).toString('utf-8');
-            return {
-                jobName: job.name,
-                jobId: job.id,
-                logs: extractRelevantLogs(logs, job.name)
-            };
-        }
-        catch (error) {
-            core.warning(`Failed to download logs for job ${job.name}: ${error}`);
-            return {
-                jobName: job.name,
-                jobId: job.id,
-                logs: `Failed to download logs: ${error}`
-            };
-        }
-    });
-    const jobLogs = await Promise.all(logPromises);
-    const combinedLogs = jobLogs
-        .map((jl) => `\n=== Job: ${jl.jobName} (ID: ${jl.jobId}) ===\n${jl.logs}`)
-        .join("\n\n");
-    return combinedLogs;
+    core.info(`Downloading logs for current job: ${currentJob.name} (${currentJob.id})`);
+    try {
+        const logResponse = await octokit.rest.actions.downloadJobLogsForWorkflowRun({
+            owner,
+            repo,
+            job_id: currentJob.id,
+        });
+        const logs = typeof logResponse.data === 'string'
+            ? logResponse.data
+            : Buffer.from(logResponse.data).toString('utf-8');
+        return extractRelevantLogs(logs, currentJob.name);
+    }
+    catch (error) {
+        core.warning(`Failed to download logs for job ${currentJob.name}: ${error}`);
+        return `Failed to download logs: ${error}`;
+    }
 }
 function extractRelevantLogs(fullLogs, jobName) {
     const lines = fullLogs.split("\n");
@@ -86,7 +71,7 @@ function extractRelevantLogs(fullLogs, jobName) {
             if (containsErrorIndicator(line)) {
                 inFailedStep = true;
                 relevantLines.push(line);
-                for (let j = Math.max(0, i - 5); j < i; j++) {
+                for (let j = Math.max(0, i - 10); j < i; j++) {
                     if (!relevantLines.includes(lines[j])) {
                         relevantLines.push(lines[j]);
                     }
@@ -97,11 +82,11 @@ function extractRelevantLogs(fullLogs, jobName) {
         if (inFailedStep) {
             relevantLines.push(line);
             if (containsErrorIndicator(line)) {
-                errorContext = 20;
+                errorContext = 30;
             }
         }
         else if (containsErrorIndicator(line)) {
-            for (let j = Math.max(0, i - 5); j < Math.min(lines.length, i + 20); j++) {
+            for (let j = Math.max(0, i - 10); j < Math.min(lines.length, i + 30); j++) {
                 if (!relevantLines.includes(lines[j])) {
                     relevantLines.push(lines[j]);
                 }

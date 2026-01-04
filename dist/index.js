@@ -7,15 +7,15 @@ import { validatePayloadSize } from "./logLimits.js";
 async function run() {
     try {
         const serviceUrl = core.getInput("service_url") || "https://api.whydiditfail.com";
-        const githubToken = core.getInput("github_token");
+        const githubToken = core.getInput("github_token") || process.env.GITHUB_TOKEN;
         const maxLogKb = Number(core.getInput("max_log_kb") || "400");
         const mode = core.getInput("mode") || "summary";
-        const logs = await fetchJobLogsBestEffort(maxLogKb);
+        const logs = await fetchJobLogsBestEffort(maxLogKb, githubToken);
         const payload = {
-            repo: context.repo.owner + "/" + context.repo.repo,
+            repo: context.payload.repository?.full_name ?? context.repo.owner + "/" + context.repo.repo,
             run_id: context.runId,
             run_number: context.runNumber,
-            job: process.env.GITHUB_JOB ?? "unknown",
+            job: context.job,
             workflow: context.workflow,
             actor: context.actor,
             event_name: context.eventName,
@@ -30,7 +30,7 @@ async function run() {
         if (mode !== "summary") {
             core.warning(`mode=${mode} not implemented in scaffold; using summary`);
         }
-        await postSummary(result?.explanation ?? null);
+        await postSummary(result);
     }
     catch (err) {
         core.setFailed(err?.message ?? String(err));

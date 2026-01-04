@@ -18,12 +18,21 @@ export async function explainFailure(serviceUrl, payload, githubToken) {
         if (!res.ok) {
             const text = await res.text().catch(() => "");
             if (res.status === 429) {
-                const retryAfter = res.headers.get("retry-after");
-                const resetTime = retryAfter ? ` (retry after ${retryAfter}s)` : "";
-                throw new Error(`Rate limit exceeded${resetTime}. ` +
-                    `This action does not retry automatically. ` +
-                    `You've reached the monthly quota for this repository. ` +
-                    `Response: ${text}`);
+                try {
+                    const errorData = JSON.parse(text);
+                    return {
+                        rate_limited: true,
+                        limit: errorData.limit,
+                        remaining: errorData.remaining,
+                        reset_at: errorData.reset_at
+                    };
+                }
+                catch {
+                    return {
+                        rate_limited: true,
+                        message: text
+                    };
+                }
             }
             if (res.status === 413) {
                 throw new Error(`Request payload too large (${res.status}). ` +
@@ -38,6 +47,14 @@ export async function explainFailure(serviceUrl, payload, githubToken) {
             throw new Error(`Analysis skipped by service. ` +
                 `Reason: ${result.reason || "Low confidence or insufficient signal"}. ` +
                 `No tokens were consumed.`);
+        }
+        const inGracePeriod = res.headers.get('x-ratelimit-grace-period') === 'true';
+        const graceRemaining = res.headers.get('x-ratelimit-grace-remaining');
+        if (inGracePeriod && graceRemaining) {
+            result.grace_period = {
+                active: true,
+                remaining: parseInt(graceRemaining, 10)
+            };
         }
         return result;
     }
