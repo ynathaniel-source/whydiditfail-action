@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="whydiditfail-logo.png" alt="Why Did It Fail Logo" width="96" height="96">
+</p>
+
 # Why Did It Fail? - GitHub Action
 
 > Turn GitHub Actions failures into clear root-cause explanations + fixes.
