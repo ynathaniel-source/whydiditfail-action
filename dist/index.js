@@ -32244,7 +32244,12 @@ async function postPRReviewComments(octokit, context, fixSuggestions, commitSha)
         return comments.length;
     }
     catch (error) {
-        core.warning(`Failed to post PR review comments: ${error}`);
+        if (error?.status === 403 || error?.message?.includes('Resource not accessible')) {
+            core.warning(`⚠️  Cannot post PR review comments: missing 'pull-requests: write' permission. Add it to your workflow to enable inline fix suggestions.`);
+        }
+        else {
+            core.warning(`Failed to post PR review comments: ${error}`);
+        }
         return 0;
     }
 }

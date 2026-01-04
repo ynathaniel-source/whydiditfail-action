@@ -149,9 +149,9 @@ If you prefer not to have fix suggestions posted automatically:
     suggest_fixes: false  # Disable inline fix suggestions
 ```
 
-### Required Permissions
+### Required Permissions (Optional)
 
-For fix suggestions to work, the action needs `pull-requests: write` permission:
+To enable inline fix suggestions on pull requests, add `pull-requests: write` permission:
 
 ```yaml
 jobs:
@@ -159,10 +159,12 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: write  # Required for posting fix suggestions
+      pull-requests: write  # Optional: enables inline fix suggestions on PRs
     steps:
       # ... your steps
 ```
+
+**Note:** Without this permission, the action will still work and post summaries, but won't be able to post inline PR review comments. Commit comments (for pushes) don't require this permission.
 
 ---
 
