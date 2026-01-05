@@ -128,6 +128,7 @@ async function postPRReviewComments(
   const runId = context.runId;
 
   if (cleanupOldComments) {
+    await cleanupOldPRComments(octokit, owner, repo, pullNumber, runId);
     await cleanupOldReviewComments(octokit, owner, repo, pullNumber, runId);
   }
 
@@ -337,7 +338,10 @@ async function cleanupOldReviewComments(
 
     const botReviewComments = reviewComments.data.filter(comment => 
       comment.user?.type === 'Bot' && 
-      (comment.body?.includes('✅ Fix') || comment.body?.includes('WhyDidItFail'))
+      (comment.body?.includes('✅ Fix') || 
+       comment.body?.includes('WhyDidItFail') ||
+       comment.body?.includes('🔧 Add') ||
+       comment.body?.includes('🔧 Fix'))
     );
 
     let deletedCount = 0;

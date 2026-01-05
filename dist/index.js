@@ -32291,6 +32291,7 @@ async function postPRReviewComments(octokit, context, fixSuggestions, commitSha,
     const pullNumber = context.payload.pull_request.number;
     const runId = context.runId;
     if (cleanupOldComments) {
+        await cleanupOldPRComments(octokit, owner, repo, pullNumber, runId);
         await cleanupOldReviewComments(octokit, owner, repo, pullNumber, runId);
     }
     const groupedFixes = groupFixesByFile(fixSuggestions);
@@ -32454,7 +32455,10 @@ async function cleanupOldReviewComments(octokit, owner, repo, pullNumber, curren
             per_page: 100
         });
         const botReviewComments = reviewComments.data.filter(comment => comment.user?.type === 'Bot' &&
-            (comment.body?.includes('✅ Fix') || comment.body?.includes('WhyDidItFail')));
+            (comment.body?.includes('✅ Fix') ||
+                comment.body?.includes('WhyDidItFail') ||
+                comment.body?.includes('🔧 Add') ||
+                comment.body?.includes('🔧 Fix')));
         let deletedCount = 0;
         for (const comment of botReviewComments) {
             try {
