@@ -32212,7 +32212,7 @@ function validatePayloadSize(payload) {
 ;// CONCATENATED MODULE: ./src/review-comments.ts
 
 
-async function postFixSuggestions(token, fixSuggestions) {
+async function postFixSuggestions(token, fixSuggestions, apiResponse) {
     if (!fixSuggestions || fixSuggestions.length === 0) {
         return { posted: 0, skipped: 0 };
     }
@@ -32223,14 +32223,14 @@ async function postFixSuggestions(token, fixSuggestions) {
     let posted = 0;
     let skipped = 0;
     if (isPR) {
-        posted = await postPRReviewComments(octokit, context, fixSuggestions, commitSha);
+        posted = await postPRReviewComments(octokit, context, fixSuggestions, commitSha, apiResponse);
     }
     else {
         posted = await postCommitComments(octokit, context, fixSuggestions, commitSha);
     }
     return { posted, skipped: fixSuggestions.length - posted };
 }
-async function postPRReviewComments(octokit, context, fixSuggestions, commitSha) {
+async function postPRReviewComments(octokit, context, fixSuggestions, commitSha, apiResponse) {
     const { owner, repo } = context.repo;
     const pullNumber = context.payload.pull_request.number;
     const groupedFixes = groupFixesByFile(fixSuggestions);
@@ -32269,7 +32269,7 @@ async function postPRReviewComments(octokit, context, fixSuggestions, commitSha)
         }
         else if (error?.status === 422 || error?.message?.includes('Path could not be resolved')) {
             core.info(`Files not in PR diff, falling back to PR comment`);
-            return await postPRCommentFallback(octokit, context, fixSuggestions, pullNumber);
+            return await postPRCommentFallback(octokit, context, fixSuggestions, pullNumber, apiResponse);
         }
         else {
             core.warning(`Failed to post PR review comments: ${error}`);
@@ -32277,13 +32277,26 @@ async function postPRReviewComments(octokit, context, fixSuggestions, commitSha)
         }
     }
 }
-async function postPRCommentFallback(octokit, context, fixSuggestions, pullNumber) {
+async function postPRCommentFallback(octokit, context, fixSuggestions, pullNumber, apiResponse) {
     const { owner, repo } = context.repo;
     const runId = context.runId;
     const jobName = context.job;
     await cleanupOldComments(octokit, owner, repo, pullNumber, runId);
     let body = `### 🔧 Suggested Fixes\n\n`;
     body += `> These apply to files **not modified in this PR**, so they're listed here instead of inline suggestions.\n\n`;
+    if (apiResponse) {
+        const remaining = apiResponse.remaining ?? 0;
+        const limit = apiResponse.limit ?? 35;
+        let usageText = `📊 **Usage:** ${remaining} / ${limit} remaining`;
+        if (apiResponse.reset_at) {
+            const resetDate = new Date(apiResponse.reset_at);
+            usageText += ` · 🔁 resets ${resetDate.toLocaleString('en-US', {
+                month: 'short',
+                day: 'numeric'
+            })}`;
+        }
+        body += `\n${usageText}\n\n`;
+    }
     body += `---\n\n`;
     const groupedFixes = groupFixesByFile(fixSuggestions);
     for (const [filePath, fixes] of Object.entries(groupedFixes)) {
@@ -32520,7 +32533,7 @@ async function run() {
         }
         await postSummary(result);
         if (suggestFixes && result.fix_suggestions && result.fix_suggestions.length > 0 && githubToken) {
-            const { posted, skipped } = await postFixSuggestions(githubToken, result.fix_suggestions);
+            const { posted, skipped } = await postFixSuggestions(githubToken, result.fix_suggestions, result);
             if (posted > 0) {
                 core.info(`✅ Posted ${posted} fix suggestion(s)`);
             }

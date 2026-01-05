@@ -13,7 +13,8 @@ export interface FixSuggestion {
 
 export async function postFixSuggestions(
   token: string,
-  fixSuggestions: FixSuggestion[]
+  fixSuggestions: FixSuggestion[],
+  apiResponse?: any
 ): Promise<{ posted: number; skipped: number }> {
   if (!fixSuggestions || fixSuggestions.length === 0) {
     return { posted: 0, skipped: 0 };
@@ -29,7 +30,7 @@ export async function postFixSuggestions(
   let skipped = 0;
 
   if (isPR) {
-    posted = await postPRReviewComments(octokit, context, fixSuggestions, commitSha);
+    posted = await postPRReviewComments(octokit, context, fixSuggestions, commitSha, apiResponse);
   } else {
     posted = await postCommitComments(octokit, context, fixSuggestions, commitSha);
   }
@@ -41,7 +42,8 @@ async function postPRReviewComments(
   octokit: ReturnType<typeof github.getOctokit>,
   context: typeof github.context,
   fixSuggestions: FixSuggestion[],
-  commitSha: string
+  commitSha: string,
+  apiResponse?: any
 ): Promise<number> {
   const { owner, repo } = context.repo;
   const pullNumber = context.payload.pull_request!.number;
@@ -87,7 +89,7 @@ async function postPRReviewComments(
       return 0;
     } else if (error?.status === 422 || error?.message?.includes('Path could not be resolved')) {
       core.info(`Files not in PR diff, falling back to PR comment`);
-      return await postPRCommentFallback(octokit, context, fixSuggestions, pullNumber);
+      return await postPRCommentFallback(octokit, context, fixSuggestions, pullNumber, apiResponse);
     } else {
       core.warning(`Failed to post PR review comments: ${error}`);
       return 0;
@@ -99,7 +101,8 @@ async function postPRCommentFallback(
   octokit: ReturnType<typeof github.getOctokit>,
   context: typeof github.context,
   fixSuggestions: FixSuggestion[],
-  pullNumber: number
+  pullNumber: number,
+  apiResponse?: any
 ): Promise<number> {
   const { owner, repo } = context.repo;
   const runId = context.runId;
@@ -109,6 +112,24 @@ async function postPRCommentFallback(
 
   let body = `### 🔧 Suggested Fixes\n\n`;
   body += `> These apply to files **not modified in this PR**, so they're listed here instead of inline suggestions.\n\n`;
+  
+  if (apiResponse) {
+    const remaining = apiResponse.remaining ?? 0;
+    const limit = apiResponse.limit ?? 35;
+    
+    let usageText = `📊 **Usage:** ${remaining} / ${limit} remaining`;
+    
+    if (apiResponse.reset_at) {
+      const resetDate = new Date(apiResponse.reset_at);
+      usageText += ` · 🔁 resets ${resetDate.toLocaleString('en-US', { 
+        month: 'short', 
+        day: 'numeric'
+      })}`;
+    }
+    
+    body += `\n${usageText}\n\n`;
+  }
+  
   body += `---\n\n`;
 
   const groupedFixes = groupFixesByFile(fixSuggestions);

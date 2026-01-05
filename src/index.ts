@@ -42,7 +42,7 @@ async function run() {
     await postSummary(result);
 
     if (suggestFixes && result.fix_suggestions && result.fix_suggestions.length > 0 && githubToken) {
-      const { posted, skipped } = await postFixSuggestions(githubToken, result.fix_suggestions);
+      const { posted, skipped } = await postFixSuggestions(githubToken, result.fix_suggestions, result);
       if (posted > 0) {
         core.info(`✅ Posted ${posted} fix suggestion(s)`);
       }
