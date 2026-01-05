@@ -32269,7 +32269,7 @@ async function postNoSuggestionComment(octokit, context, pullNumber, apiResponse
         body += '\n';
     }
     body += `---\n\n`;
-    body += `<sub>Job: ${jobName} · Run #${runId}</sub>`;
+    body += `<sub>Job: ${jobName} · Run #${runId} · Powered by [WhyDidItFail](https://github.com/marketplace/actions/whydiditfail)</sub>`;
     try {
         await octokit.rest.issues.createComment({
             owner,
@@ -32366,7 +32366,7 @@ async function postPRCommentFallback(octokit, context, fixSuggestions, pullNumbe
         }
         body += '---\n\n';
     }
-    body += `<sub>Job: ${jobName} · Run #${runId}</sub>`;
+    body += `<sub>Job: ${jobName} · Run #${runId} · Powered by [WhyDidItFail](https://github.com/marketplace/actions/whydiditfail)</sub>`;
     try {
         await octokit.rest.issues.createComment({
             owner,
@@ -32404,6 +32404,7 @@ function detectLanguage(filePath) {
     return langMap[ext || ''] || 'text';
 }
 async function cleanupOldComments(octokit, owner, repo, pullNumber, currentRunId) {
+    const currentJobName = github.context.job;
     try {
         const comments = await octokit.rest.issues.listComments({
             owner,
@@ -32412,11 +32413,12 @@ async function cleanupOldComments(octokit, owner, repo, pullNumber, currentRunId
             per_page: 100
         });
         const botComments = comments.data.filter(comment => comment.user?.type === 'Bot' &&
-            comment.body?.includes('🔧 Suggested Fixes'));
+            (comment.body?.includes('🔧 Suggested Fixes') || comment.body?.includes('🔧 Analysis Complete')));
         let deletedCount = 0;
         for (const comment of botComments) {
+            const commentJobName = comment.body?.match(/Job: ([^\s·]+)/)?.[1];
             const commentRunId = comment.body?.match(/Run #(\d+)/)?.[1];
-            if (commentRunId && parseInt(commentRunId) !== currentRunId) {
+            if (commentJobName === currentJobName && commentRunId && parseInt(commentRunId) !== currentRunId) {
                 try {
                     await octokit.rest.issues.deleteComment({
                         owner,
@@ -32424,7 +32426,7 @@ async function cleanupOldComments(octokit, owner, repo, pullNumber, currentRunId
                         comment_id: comment.id
                     });
                     deletedCount++;
-                    core.info(`Deleted old comment #${comment.id} from run #${commentRunId}`);
+                    core.info(`Deleted old comment #${comment.id} from job ${commentJobName}, run #${commentRunId}`);
                 }
                 catch (deleteError) {
                     core.warning(`Failed to delete comment #${comment.id}: ${deleteError}`);
@@ -32432,7 +32434,7 @@ async function cleanupOldComments(octokit, owner, repo, pullNumber, currentRunId
             }
         }
         if (deletedCount > 0) {
-            core.info(`Cleaned up ${deletedCount} old comment(s)`);
+            core.info(`Cleaned up ${deletedCount} old comment(s) from job ${currentJobName}`);
         }
     }
     catch (error) {
@@ -32528,16 +32530,23 @@ function buildInlineSuggestionBody(fix) {
     body += `**Evidence:** ${evidence}\n\n`;
     body += '</details>\n';
     if (tip) {
-        body += `\n💡 **Tip:** ${tip}`;
+        body += `\n💡 **Tip:** ${tip}\n`;
     }
+    body += `\n---\n\n`;
+    body += `<sub>Powered by [WhyDidItFail](https://github.com/marketplace/actions/whydiditfail)</sub>`;
     return body;
 }
 function buildFallbackSuggestionBody(fix, filePath) {
     const title = fix.title || 'Fix compilation error';
     const rationale = fix.rationale || 'This change resolves the error.';
     const language = detectLanguage(filePath);
+    const context = github.context;
+    const { owner, repo } = context.repo;
+    const commitSha = context.sha;
+    const fileLink = `https://github.com/${owner}/${repo}/blob/${commitSha}/${filePath}#L${fix.line_start}`;
     let body = `**Issue:** ${title}\n\n`;
     body += `**Fix:** ${rationale}\n\n`;
+    body += `**Location:** [\`${filePath}:${fix.line_start}\`](${fileLink})\n\n`;
     body += `\`\`\`${language}\n`;
     body += fix.replacement;
     body += '\n```';
