@@ -9,6 +9,9 @@ export interface FixSuggestion {
   title?: string;
   rationale?: string;
   confidence: number;
+  error_code?: string;
+  evidence?: string;
+  tip?: string;
 }
 
 export async function postFixSuggestions(
@@ -16,15 +19,19 @@ export async function postFixSuggestions(
   fixSuggestions: FixSuggestion[],
   apiResponse?: any
 ): Promise<{ posted: number; skipped: number }> {
-  if (!fixSuggestions || fixSuggestions.length === 0) {
-    return { posted: 0, skipped: 0 };
-  }
-
   const context = github.context;
   const octokit = github.getOctokit(token);
-
   const isPR = context.payload.pull_request !== undefined;
   const commitSha = context.sha;
+
+  if (!fixSuggestions || fixSuggestions.length === 0) {
+    if (isPR && apiResponse?.root_cause) {
+      const pullNumber = context.payload.pull_request!.number;
+      await postNoSuggestionComment(octokit, context, pullNumber, apiResponse);
+      return { posted: 1, skipped: 0 };
+    }
+    return { posted: 0, skipped: 0 };
+  }
 
   let posted = 0;
   let skipped = 0;
@@ -36,6 +43,71 @@ export async function postFixSuggestions(
   }
 
   return { posted, skipped: fixSuggestions.length - posted };
+}
+
+async function postNoSuggestionComment(
+  octokit: ReturnType<typeof github.getOctokit>,
+  context: typeof github.context,
+  pullNumber: number,
+  apiResponse: any
+): Promise<void> {
+  const { owner, repo } = context.repo;
+  const runId = context.runId;
+  const jobName = context.job;
+
+  await cleanupOldComments(octokit, owner, repo, pullNumber, runId);
+
+  const rootCause = apiResponse.root_cause || 'Test failed';
+  const category = apiResponse.category || 'unknown';
+  
+  let body = `### 🔧 Analysis Complete\n\n`;
+  body += `> No immediate code fix suggestions available for this failure.\n\n`;
+  
+  if (apiResponse) {
+    const remaining = apiResponse.remaining ?? 0;
+    const limit = apiResponse.limit ?? 35;
+    
+    let usageText = `📊 **Usage:** ${remaining} / ${limit} remaining`;
+    
+    if (apiResponse.reset_at) {
+      const resetDate = new Date(apiResponse.reset_at);
+      usageText += ` · 🔁 resets ${resetDate.toLocaleString('en-US', { 
+        month: 'short', 
+        day: 'numeric'
+      })}`;
+    }
+    
+    body += `${usageText}\n\n`;
+  }
+  
+  body += `---\n\n`;
+  body += `**Issue:** ${rootCause}\n\n`;
+  body += `**Category:** \`${category}\`\n\n`;
+  
+  if (apiResponse.fixes && Array.isArray(apiResponse.fixes) && apiResponse.fixes.length > 0) {
+    body += `**Recommended Actions:**\n\n`;
+    apiResponse.fixes.forEach((fix: any, i: number) => {
+      const fixText = typeof fix === 'string' ? fix : fix.description || fix;
+      body += `${i + 1}. ${fixText}\n`;
+    });
+    body += '\n';
+  }
+  
+  body += `---\n\n`;
+  body += `<sub>Job: ${jobName} · Run #${runId}</sub>`;
+
+  try {
+    await octokit.rest.issues.createComment({
+      owner,
+      repo,
+      issue_number: pullNumber,
+      body
+    });
+
+    core.info(`Posted analysis comment (no fix suggestions) to PR #${pullNumber}`);
+  } catch (error) {
+    core.warning(`Failed to post no-suggestion comment: ${error}`);
+  }
 }
 
 async function postPRReviewComments(
@@ -127,7 +199,7 @@ async function postPRCommentFallback(
       })}`;
     }
     
-    body += `\n${usageText}\n\n`;
+    body += `${usageText}\n\n`;
   }
   
   body += `---\n\n`;
@@ -137,17 +209,15 @@ async function postPRCommentFallback(
   for (const [filePath, fixes] of Object.entries(groupedFixes)) {
     body += `#### 📄 \`${filePath}\`\n\n`;
     
-    for (const fix of fixes) {
-      const title = fix.title || 'Fix compilation error';
-      const rationale = fix.rationale || 'This change resolves the error.';
-      
-      body += `**Issue:** ${title}\n\n`;
-      body += `**Fix:** ${rationale}\n\n`;
-      
-      const language = detectLanguage(filePath);
-      body += `\`\`\`${language}\n`;
-      body += fix.replacement;
-      body += '\n```\n\n';
+    const combinedGroups = combineCloseLines(fixes);
+    
+    for (const group of combinedGroups) {
+      if (group.length === 1) {
+        body += buildFallbackSuggestionBody(group[0], filePath);
+      } else {
+        body += buildCombinedFallbackBody(group, filePath);
+      }
+      body += '\n\n';
     }
     
     body += '---\n\n';
@@ -251,7 +321,7 @@ async function postCommitComments(
 
   for (const fix of fixSuggestions) {
     try {
-      const body = buildSuggestionBody(fix, false);
+      const body = buildFallbackSuggestionBody(fix, fix.path);
 
       await octokit.rest.repos.createCommitComment({
         owner,
@@ -317,60 +387,67 @@ function combineCloseLines(fixes: FixSuggestion[]): FixSuggestion[][] {
 
 function buildCombinedSuggestionBody(fixes: FixSuggestion[], useSuggestionSyntax: boolean): string {
   if (fixes.length === 1) {
-    return buildSuggestionBody(fixes[0], useSuggestionSyntax);
+    return buildInlineSuggestionBody(fixes[0]);
   }
   
-  const avgConfidence = fixes.reduce((sum, f) => sum + f.confidence, 0) / fixes.length;
-  const confidencePercent = Math.round(avgConfidence * 100);
-  
-  let body = `## 🔧 Multiple fixes for this section\n\n`;
-  body += `**Confidence:** ${confidencePercent}%\n\n`;
+  let body = '';
   
   fixes.forEach((fix, i) => {
-    const fixConfidence = Math.round(fix.confidence * 100);
-    body += `### ${i + 1}. ${fix.title || 'Suggested fix'} (${fixConfidence}%)\n\n`;
-    body += `${fix.rationale || 'This change should resolve the error.'}\n\n`;
-    
-    if (useSuggestionSyntax) {
-      body += '```suggestion\n';
-      body += fix.replacement;
-      body += '\n```\n\n';
-    } else {
-      body += '**Suggested code:**\n\n';
-      body += '```\n';
-      body += fix.replacement;
-      body += '\n```\n\n';
-    }
+    if (i > 0) body += '\n---\n\n';
+    body += buildInlineSuggestionBody(fix);
   });
-  
-  body += '---\n';
-  body += '<sub>💡 Review these suggestions carefully before applying</sub>';
   
   return body;
 }
 
-function buildSuggestionBody(fix: FixSuggestion, useSuggestionSyntax: boolean): string {
+function buildInlineSuggestionBody(fix: FixSuggestion): string {
+  const errorCode = fix.error_code || 'Error';
   const title = fix.title || 'Suggested fix';
   const rationale = fix.rationale || 'This change should resolve the error.';
-  const confidencePercent = Math.round(fix.confidence * 100);
+  const confidence = fix.confidence >= 0.85 ? 'High' : fix.confidence >= 0.65 ? 'Medium' : 'Low';
+  const evidence = fix.evidence || `${fix.path}:${fix.line_start}`;
+  const tip = fix.tip || '';
 
-  let body = `## 🔧 ${title}\n\n`;
-  body += `**Confidence:** ${confidencePercent}%\n\n`;
+  let body = `### ✅ Fix ${errorCode}: ${title}\n\n`;
   body += `${rationale}\n\n`;
-
-  if (useSuggestionSyntax) {
-    body += '```suggestion\n';
-    body += fix.replacement;
-    body += '\n```\n';
-  } else {
-    body += '**Suggested code:**\n\n';
-    body += '```\n';
-    body += fix.replacement;
-    body += '\n```\n';
+  body += '```suggestion\n';
+  body += fix.replacement;
+  body += '\n```\n\n';
+  
+  body += '<details>\n';
+  body += '  <summary><strong>Details</strong></summary>\n\n';
+  body += `**Confidence:** ${confidence}\n\n`;
+  body += `**Evidence:** ${evidence}\n\n`;
+  body += '</details>\n';
+  
+  if (tip) {
+    body += `\n💡 **Tip:** ${tip}`;
   }
 
-  body += '\n---\n';
-  body += '<sub>💡 Review this suggestion carefully before applying</sub>';
+  return body;
+}
 
+function buildFallbackSuggestionBody(fix: FixSuggestion, filePath: string): string {
+  const title = fix.title || 'Fix compilation error';
+  const rationale = fix.rationale || 'This change resolves the error.';
+  const language = detectLanguage(filePath);
+
+  let body = `**Issue:** ${title}\n\n`;
+  body += `**Fix:** ${rationale}\n\n`;
+  body += `\`\`\`${language}\n`;
+  body += fix.replacement;
+  body += '\n```';
+  
+  return body;
+}
+
+function buildCombinedFallbackBody(fixes: FixSuggestion[], filePath: string): string {
+  let body = '';
+  
+  fixes.forEach((fix, i) => {
+    if (i > 0) body += '\n\n';
+    body += buildFallbackSuggestionBody(fix, filePath);
+  });
+  
   return body;
 }
