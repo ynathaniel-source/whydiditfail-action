@@ -32265,10 +32265,51 @@ async function postPRReviewComments(octokit, context, fixSuggestions, commitSha)
     catch (error) {
         if (error?.status === 403 || error?.message?.includes('Resource not accessible')) {
             core.warning(`⚠️  Cannot post PR review comments: missing 'pull-requests: write' permission. Add it to your workflow to enable inline fix suggestions.`);
+            return 0;
+        }
+        else if (error?.status === 422 || error?.message?.includes('Path could not be resolved')) {
+            core.info(`Files not in PR diff, falling back to PR comment`);
+            return await postPRCommentFallback(octokit, context, fixSuggestions, pullNumber);
         }
         else {
             core.warning(`Failed to post PR review comments: ${error}`);
+            return 0;
         }
+    }
+}
+async function postPRCommentFallback(octokit, context, fixSuggestions, pullNumber) {
+    const { owner, repo } = context.repo;
+    let body = '## 🔧 Suggested Fixes\n\n';
+    body += '> 💡 These fixes are for files not changed in this PR, so they appear here instead of as inline suggestions.\n\n';
+    const groupedFixes = groupFixesByFile(fixSuggestions);
+    for (const [filePath, fixes] of Object.entries(groupedFixes)) {
+        body += `### 📁 \`${filePath}\`\n\n`;
+        for (const fix of fixes) {
+            const confidencePercent = Math.round(fix.confidence * 100);
+            body += `#### ${fix.title || 'Suggested fix'} (${confidencePercent}% confidence)\n\n`;
+            body += `**Lines ${fix.line_start}-${fix.line_end}**\n\n`;
+            if (fix.rationale) {
+                body += `${fix.rationale}\n\n`;
+            }
+            body += '```suggestion\n';
+            body += fix.replacement;
+            body += '\n```\n\n';
+        }
+    }
+    body += '---\n';
+    body += '<sub>💡 Review these suggestions carefully before applying</sub>';
+    try {
+        await octokit.rest.issues.createComment({
+            owner,
+            repo,
+            issue_number: pullNumber,
+            body
+        });
+        core.info(`Posted fix suggestions as PR comment #${pullNumber}`);
+        return fixSuggestions.length;
+    }
+    catch (error) {
+        core.warning(`Failed to post PR comment: ${error}`);
         return 0;
     }
 }
