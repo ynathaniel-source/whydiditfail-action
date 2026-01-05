@@ -32404,7 +32404,6 @@ function detectLanguage(filePath) {
     return langMap[ext || ''] || 'text';
 }
 async function cleanupOldComments(octokit, owner, repo, pullNumber, currentRunId) {
-    const currentJobName = github.context.job;
     try {
         const comments = await octokit.rest.issues.listComments({
             owner,
@@ -32416,9 +32415,8 @@ async function cleanupOldComments(octokit, owner, repo, pullNumber, currentRunId
             (comment.body?.includes('🔧 Suggested Fixes') || comment.body?.includes('🔧 Analysis Complete')));
         let deletedCount = 0;
         for (const comment of botComments) {
-            const commentJobName = comment.body?.match(/Job: ([^\s·]+)/)?.[1];
             const commentRunId = comment.body?.match(/Run #(\d+)/)?.[1];
-            if (commentJobName === currentJobName && commentRunId && parseInt(commentRunId) !== currentRunId) {
+            if (commentRunId && parseInt(commentRunId) !== currentRunId) {
                 try {
                     await octokit.rest.issues.deleteComment({
                         owner,
@@ -32426,7 +32424,7 @@ async function cleanupOldComments(octokit, owner, repo, pullNumber, currentRunId
                         comment_id: comment.id
                     });
                     deletedCount++;
-                    core.info(`Deleted old comment #${comment.id} from job ${commentJobName}, run #${commentRunId}`);
+                    core.info(`Deleted old comment #${comment.id} from run #${commentRunId}`);
                 }
                 catch (deleteError) {
                     core.warning(`Failed to delete comment #${comment.id}: ${deleteError}`);
@@ -32434,7 +32432,7 @@ async function cleanupOldComments(octokit, owner, repo, pullNumber, currentRunId
             }
         }
         if (deletedCount > 0) {
-            core.info(`Cleaned up ${deletedCount} old comment(s) from job ${currentJobName}`);
+            core.info(`Cleaned up ${deletedCount} old WhyDidItFail comment(s)`);
         }
     }
     catch (error) {
