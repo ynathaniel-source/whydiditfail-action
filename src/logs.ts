@@ -74,6 +74,7 @@ async function fetchLogsFromGitHub(token?: string): Promise<string> {
 function extractRelevantLogs(fullLogs: string, jobName: string): string {
   const lines = fullLogs.split("\n");
   const relevantLines: string[] = [];
+  const seenLines = new Set<string>();
   let inFailedStep = false;
   let errorContext = 0;
 
@@ -88,10 +89,14 @@ function extractRelevantLogs(fullLogs: string, jobName: string): string {
       
       if (containsErrorIndicator(line)) {
         inFailedStep = true;
-        relevantLines.push(line);
+        if (!seenLines.has(line)) {
+          seenLines.add(line);
+          relevantLines.push(line);
+        }
         
         for (let j = Math.max(0, i - 10); j < i; j++) {
-          if (!relevantLines.includes(lines[j])) {
+          if (!seenLines.has(lines[j])) {
+            seenLines.add(lines[j]);
             relevantLines.push(lines[j]);
           }
         }
@@ -100,13 +105,17 @@ function extractRelevantLogs(fullLogs: string, jobName: string): string {
     }
 
     if (inFailedStep) {
-      relevantLines.push(line);
+      if (!seenLines.has(line)) {
+        seenLines.add(line);
+        relevantLines.push(line);
+      }
       if (containsErrorIndicator(line)) {
         errorContext = 30;
       }
     } else if (containsErrorIndicator(line)) {
       for (let j = Math.max(0, i - 10); j < Math.min(lines.length, i + 30); j++) {
-        if (!relevantLines.includes(lines[j])) {
+        if (!seenLines.has(lines[j])) {
+          seenLines.add(lines[j]);
           relevantLines.push(lines[j]);
         }
       }
@@ -167,5 +176,12 @@ function truncate(s: string, maxBytes: number): string {
   if (b.length <= maxBytes) return s;
   
   core.warning(`Logs truncated from ${b.length} to ${maxBytes} bytes`);
-  return b.subarray(b.length - maxBytes).toString("utf8");
+  
+  let start = b.length - maxBytes;
+  
+  while (start < b.length && (b[start] & 0b1100_0000) === 0b1000_0000) {
+    start++;
+  }
+  
+  return b.subarray(start).toString("utf8");
 }

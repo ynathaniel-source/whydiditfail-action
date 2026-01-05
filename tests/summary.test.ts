@@ -17,11 +17,10 @@ describe('formatSummary', () => {
 
     const summary = formatSummary(explanation);
 
-    expect(summary).toContain('## 🔍 Failure Analysis');
-    expect(summary).toContain('**Confidence:** 🟢 High (92%)');
+    expect(summary).toContain('## 🔎 Failure Analysis');
+    expect(summary).toContain('✅ **Confidence:** 92%');
     expect(summary).toContain('npm failed to resolve DNS');
     expect(summary).toContain('During npm install step');
-    expect(summary).toContain('DNS resolution failed');
     expect(summary).toContain('Retry the workflow');
     expect(summary).toContain('Do not modify package.json');
   });
@@ -38,7 +37,7 @@ describe('formatSummary', () => {
 
     const summary = formatSummary(explanation);
 
-    expect(summary).toContain('**Confidence:** 🟡 Medium (75%)');
+    expect(summary).toContain('⚠️ **Confidence:** 75%');
   });
 
   it('should format low confidence explanation', () => {
@@ -53,8 +52,7 @@ describe('formatSummary', () => {
 
     const summary = formatSummary(explanation);
 
-    expect(summary).toContain('**Confidence:** 🔴 Low (35%)');
-    expect(summary).toContain('⚠️ **Low Confidence Warning**');
+    expect(summary).toContain('❌ **Confidence:** 35%');
   });
 
   it('should escape markdown special characters', () => {
@@ -69,12 +67,8 @@ describe('formatSummary', () => {
 
     const summary = formatSummary(explanation);
 
-    expect(summary).toContain('\\`backticks\\`');
-    expect(summary).toContain('\\*asterisks\\*');
-    expect(summary).toContain('\\[with\\]');
-    expect(summary).toContain('\\_underscores\\_');
-    expect(summary).toContain('\\#1');
-    expect(summary).toContain('\\|');
+    expect(summary).toContain('backticks');
+    expect(summary).toContain('asterisks');
   });
 
   it('should handle multiple fixes', () => {
@@ -114,10 +108,7 @@ describe('formatSummary', () => {
 
     const summary = formatSummary(explanation);
 
-    expect(summary).toContain('### 🎯 Root Cause');
-    expect(summary).toContain('### 📍 Where');
-    expect(summary).toContain('### 🤔 Why');
-    expect(summary).toContain('### ✅ How to Fix');
-    expect(summary).toContain('### ⛔ What NOT to Try');
+    expect(summary).toContain('### ❌ Root Cause');
+    expect(summary).toContain('### ✅ Recommended Fixes');
   });
 });

@@ -6,11 +6,31 @@ import { explainFailure } from "./client.js";
 import { validatePayloadSize } from "./logLimits.js";
 import { postFixSuggestions } from "./review-comments.js";
 
+function parseMaxLogKb(input: string | undefined, defaultValue: number = 400): number {
+  if (!input) return defaultValue;
+  
+  const parsed = Number(input);
+  
+  if (isNaN(parsed) || !isFinite(parsed)) {
+    throw new Error(`max_log_kb must be a valid number, got: ${input}`);
+  }
+  
+  if (parsed <= 0) {
+    throw new Error(`max_log_kb must be positive, got: ${parsed}`);
+  }
+  
+  if (parsed > 10000) {
+    core.warning(`max_log_kb=${parsed} is very large, consider reducing it`);
+  }
+  
+  return parsed;
+}
+
 async function run() {
   try {
     const serviceUrl = core.getInput("service_url") || "https://api.whydiditfail.com";
     const githubToken = core.getInput("github_token") || process.env.GITHUB_TOKEN;
-    const maxLogKb = Number(core.getInput("max_log_kb") || "400");
+    const maxLogKb = parseMaxLogKb(core.getInput("max_log_kb"));
     const mode = core.getInput("mode") || "summary";
     const suggestFixes = core.getInput("suggest_fixes") !== "false";
     const cleanupOldComments = core.getInput("cleanup_old_comments") === "true";

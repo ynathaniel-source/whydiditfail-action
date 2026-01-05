@@ -1,6 +1,16 @@
 import * as core from '@actions/core';
 import * as github from '@actions/github';
 
+const WDF_MARKER = '<!-- whydiditfail -->';
+
+function getPullNumber(context: typeof github.context): number {
+  const pullNumber = context.payload.pull_request?.number ?? context.issue?.number;
+  if (!pullNumber) {
+    throw new Error('Could not determine pull request number from context');
+  }
+  return pullNumber;
+}
+
 export interface FixSuggestion {
   path: string;
   line_start: number;
@@ -27,7 +37,7 @@ export async function postFixSuggestions(
 
   if (!fixSuggestions || fixSuggestions.length === 0) {
     if (isPR && apiResponse?.root_cause) {
-      const pullNumber = context.payload.pull_request!.number;
+      const pullNumber = getPullNumber(context);
       await postNoSuggestionComment(octokit, context, pullNumber, apiResponse, cleanupOldComments);
       return { posted: 1, skipped: 0 };
     }
@@ -99,7 +109,8 @@ async function postNoSuggestionComment(
   }
   
   body += `---\n\n`;
-  body += `<sub>Job: ${jobName} · Run #${runId} · Powered by [WhyDidItFail](https://github.com/marketplace/actions/whydiditfail)</sub>`;
+  body += `<sub>Job: ${jobName} · Run #${runId} · Powered by [WhyDidItFail](https://github.com/marketplace/actions/whydiditfail)</sub>\n\n`;
+  body += WDF_MARKER;
 
   try {
     await octokit.rest.issues.createComment({
@@ -124,7 +135,7 @@ async function postPRReviewComments(
   cleanupOldComments: boolean = false
 ): Promise<number> {
   const { owner, repo } = context.repo;
-  const pullNumber = context.payload.pull_request!.number;
+  const pullNumber = getPullNumber(context);
   const runId = context.runId;
   const jobName = context.job;
 
@@ -140,16 +151,24 @@ async function postPRReviewComments(
     const combinedGroups = combineCloseLines(fixes);
     
     for (const group of combinedGroups) {
+      const first = group.at(0);
+      const last = group.at(-1);
+      
+      if (!first || !last) {
+        core.warning(`Skipping empty group for ${filePath}`);
+        continue;
+      }
+      
       const body = buildCombinedSuggestionBody(group, true, runId, jobName);
       
       const comment: any = {
         path: filePath,
         body,
-        line: group[group.length - 1].line_end
+        line: last.line_end
       };
 
-      if (group[0].line_start !== group[group.length - 1].line_end) {
-        comment.start_line = group[0].line_start;
+      if (first.line_start !== last.line_end) {
+        comment.start_line = first.line_start;
       }
 
       comments.push(comment);
@@ -239,7 +258,8 @@ async function postPRCommentFallback(
     body += '---\n\n';
   }
 
-  body += `<sub>Job: ${jobName} · Run #${runId} · Powered by [WhyDidItFail](https://github.com/marketplace/actions/whydiditfail)</sub>`;
+  body += `<sub>Job: ${jobName} · Run #${runId} · Powered by [WhyDidItFail](https://github.com/marketplace/actions/whydiditfail)</sub>\n\n`;
+  body += WDF_MARKER;
 
   try {
     await octokit.rest.issues.createComment({
@@ -296,7 +316,7 @@ async function cleanupOldPRComments(
 
     const botComments = comments.data.filter(comment => 
       comment.user?.type === 'Bot' && 
-      (comment.body?.includes('🔧 Suggested Fixes') || comment.body?.includes('🔧 Analysis Complete'))
+      comment.body?.includes(WDF_MARKER)
     );
 
     let deletedCount = 0;
@@ -344,10 +364,7 @@ async function cleanupOldReviewComments(
 
     const botReviewComments = reviewComments.data.filter(comment => 
       comment.user?.type === 'Bot' && 
-      (comment.body?.includes('✅ Fix') || 
-       comment.body?.includes('WhyDidItFail') ||
-       comment.body?.includes('🔧 Add') ||
-       comment.body?.includes('🔧 Fix'))
+      comment.body?.includes(WDF_MARKER)
     );
 
     let deletedCount = 0;
@@ -439,8 +456,13 @@ function combineCloseLines(fixes: FixSuggestion[]): FixSuggestion[][] {
   let currentGroup: FixSuggestion[] = [fixes[0]];
   
   for (let i = 1; i < fixes.length; i++) {
-    const prev = currentGroup[currentGroup.length - 1];
+    const prev = currentGroup.at(-1);
     const curr = fixes[i];
+    
+    if (!prev) {
+      currentGroup = [curr];
+      continue;
+    }
     
     if (curr.line_start - prev.line_end <= 5) {
       currentGroup.push(curr);
@@ -450,7 +472,10 @@ function combineCloseLines(fixes: FixSuggestion[]): FixSuggestion[][] {
     }
   }
   
-  groups.push(currentGroup);
+  if (currentGroup.length > 0) {
+    groups.push(currentGroup);
+  }
+  
   return groups;
 }
 
@@ -494,7 +519,8 @@ function buildInlineSuggestionBody(fix: FixSuggestion, runId: number, jobName: s
   }
   
   body += `\n---\n\n`;
-  body += `<sub>Job: ${jobName} · Run #${runId} · Powered by [WhyDidItFail](https://github.com/marketplace/actions/whydiditfail)</sub>`;
+  body += `<sub>Job: ${jobName} · Run #${runId} · Powered by [WhyDidItFail](https://github.com/marketplace/actions/whydiditfail)</sub>\n\n`;
+  body += WDF_MARKER;
 
   return body;
 }

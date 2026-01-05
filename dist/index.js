@@ -31788,6 +31788,7 @@ async function fetchLogsFromGitHub(token) {
 function extractRelevantLogs(fullLogs, jobName) {
     const lines = fullLogs.split("\n");
     const relevantLines = [];
+    const seenLines = new Set();
     let inFailedStep = false;
     let errorContext = 0;
     for (let i = 0; i < lines.length; i++) {
@@ -31799,9 +31800,13 @@ function extractRelevantLogs(fullLogs, jobName) {
             }
             if (containsErrorIndicator(line)) {
                 inFailedStep = true;
-                relevantLines.push(line);
+                if (!seenLines.has(line)) {
+                    seenLines.add(line);
+                    relevantLines.push(line);
+                }
                 for (let j = Math.max(0, i - 10); j < i; j++) {
-                    if (!relevantLines.includes(lines[j])) {
+                    if (!seenLines.has(lines[j])) {
+                        seenLines.add(lines[j]);
                         relevantLines.push(lines[j]);
                     }
                 }
@@ -31809,14 +31814,18 @@ function extractRelevantLogs(fullLogs, jobName) {
             }
         }
         if (inFailedStep) {
-            relevantLines.push(line);
+            if (!seenLines.has(line)) {
+                seenLines.add(line);
+                relevantLines.push(line);
+            }
             if (containsErrorIndicator(line)) {
                 errorContext = 30;
             }
         }
         else if (containsErrorIndicator(line)) {
             for (let j = Math.max(0, i - 10); j < Math.min(lines.length, i + 30); j++) {
-                if (!relevantLines.includes(lines[j])) {
+                if (!seenLines.has(lines[j])) {
+                    seenLines.add(lines[j]);
                     relevantLines.push(lines[j]);
                 }
             }
@@ -31870,7 +31879,11 @@ function truncate(s, maxBytes) {
     if (b.length <= maxBytes)
         return s;
     core.warning(`Logs truncated from ${b.length} to ${maxBytes} bytes`);
-    return b.subarray(b.length - maxBytes).toString("utf8");
+    let start = b.length - maxBytes;
+    while (start < b.length && (b[start] & 0b1100_0000) === 0b1000_0000) {
+        start++;
+    }
+    return b.subarray(start).toString("utf8");
 }
 
 ;// CONCATENATED MODULE: ./src/summary.ts
@@ -32118,6 +32131,47 @@ function formatLocationLink(loc, ctx) {
 }
 
 ;// CONCATENATED MODULE: ./src/client.ts
+async function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+function shouldRetry(status) {
+    return status === 429 || status === 502 || status === 503 || status === 504 || status === 408;
+}
+async function fetchWithRetry(url, options, retryOptions = { maxRetries: 3, initialDelayMs: 1000, maxDelayMs: 10000 }) {
+    let lastError = null;
+    for (let attempt = 0; attempt <= retryOptions.maxRetries; attempt++) {
+        try {
+            const response = await fetch(url, options);
+            if (response.ok || !shouldRetry(response.status)) {
+                return response;
+            }
+            if (attempt < retryOptions.maxRetries) {
+                const retryAfter = response.headers.get('retry-after');
+                let delayMs;
+                if (retryAfter) {
+                    const retryAfterSeconds = parseInt(retryAfter, 10);
+                    delayMs = isNaN(retryAfterSeconds) ? retryOptions.initialDelayMs : retryAfterSeconds * 1000;
+                }
+                else {
+                    delayMs = Math.min(retryOptions.initialDelayMs * Math.pow(2, attempt), retryOptions.maxDelayMs);
+                    delayMs += Math.random() * 1000;
+                }
+                await sleep(delayMs);
+                continue;
+            }
+            return response;
+        }
+        catch (error) {
+            lastError = error instanceof Error ? error : new Error(String(error));
+            if (attempt < retryOptions.maxRetries) {
+                const delayMs = Math.min(retryOptions.initialDelayMs * Math.pow(2, attempt), retryOptions.maxDelayMs) + Math.random() * 1000;
+                await sleep(delayMs);
+                continue;
+            }
+        }
+    }
+    throw lastError || new Error('Max retries exceeded');
+}
 async function explainFailure(serviceUrl, payload, githubToken) {
     const url = `${serviceUrl.replace(/\/$/, "")}/v1/explain`;
     const headers = {
@@ -32129,7 +32183,7 @@ async function explainFailure(serviceUrl, payload, githubToken) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 60000);
     try {
-        const res = await fetch(url, {
+        const res = await fetchWithRetry(url, {
             method: "POST",
             headers,
             body: JSON.stringify(payload),
@@ -32212,6 +32266,14 @@ function validatePayloadSize(payload) {
 ;// CONCATENATED MODULE: ./src/review-comments.ts
 
 
+const WDF_MARKER = '<!-- whydiditfail -->';
+function getPullNumber(context) {
+    const pullNumber = context.payload.pull_request?.number ?? context.issue?.number;
+    if (!pullNumber) {
+        throw new Error('Could not determine pull request number from context');
+    }
+    return pullNumber;
+}
 async function postFixSuggestions(token, fixSuggestions, apiResponse, cleanupOldComments = false) {
     const context = github.context;
     const octokit = github.getOctokit(token);
@@ -32219,7 +32281,7 @@ async function postFixSuggestions(token, fixSuggestions, apiResponse, cleanupOld
     const commitSha = context.sha;
     if (!fixSuggestions || fixSuggestions.length === 0) {
         if (isPR && apiResponse?.root_cause) {
-            const pullNumber = context.payload.pull_request.number;
+            const pullNumber = getPullNumber(context);
             await postNoSuggestionComment(octokit, context, pullNumber, apiResponse, cleanupOldComments);
             return { posted: 1, skipped: 0 };
         }
@@ -32272,7 +32334,8 @@ async function postNoSuggestionComment(octokit, context, pullNumber, apiResponse
         body += '\n';
     }
     body += `---\n\n`;
-    body += `<sub>Job: ${jobName} · Run #${runId} · Powered by [WhyDidItFail](https://github.com/marketplace/actions/whydiditfail)</sub>`;
+    body += `<sub>Job: ${jobName} · Run #${runId} · Powered by [WhyDidItFail](https://github.com/marketplace/actions/whydiditfail)</sub>\n\n`;
+    body += WDF_MARKER;
     try {
         await octokit.rest.issues.createComment({
             owner,
@@ -32288,7 +32351,7 @@ async function postNoSuggestionComment(octokit, context, pullNumber, apiResponse
 }
 async function postPRReviewComments(octokit, context, fixSuggestions, commitSha, apiResponse, cleanupOldComments = false) {
     const { owner, repo } = context.repo;
-    const pullNumber = context.payload.pull_request.number;
+    const pullNumber = getPullNumber(context);
     const runId = context.runId;
     const jobName = context.job;
     if (cleanupOldComments) {
@@ -32300,14 +32363,20 @@ async function postPRReviewComments(octokit, context, fixSuggestions, commitSha,
     for (const [filePath, fixes] of Object.entries(groupedFixes)) {
         const combinedGroups = combineCloseLines(fixes);
         for (const group of combinedGroups) {
+            const first = group.at(0);
+            const last = group.at(-1);
+            if (!first || !last) {
+                core.warning(`Skipping empty group for ${filePath}`);
+                continue;
+            }
             const body = buildCombinedSuggestionBody(group, true, runId, jobName);
             const comment = {
                 path: filePath,
                 body,
-                line: group[group.length - 1].line_end
+                line: last.line_end
             };
-            if (group[0].line_start !== group[group.length - 1].line_end) {
-                comment.start_line = group[0].line_start;
+            if (first.line_start !== last.line_end) {
+                comment.start_line = first.line_start;
             }
             comments.push(comment);
         }
@@ -32377,7 +32446,8 @@ async function postPRCommentFallback(octokit, context, fixSuggestions, pullNumbe
         }
         body += '---\n\n';
     }
-    body += `<sub>Job: ${jobName} · Run #${runId} · Powered by [WhyDidItFail](https://github.com/marketplace/actions/whydiditfail)</sub>`;
+    body += `<sub>Job: ${jobName} · Run #${runId} · Powered by [WhyDidItFail](https://github.com/marketplace/actions/whydiditfail)</sub>\n\n`;
+    body += WDF_MARKER;
     try {
         await octokit.rest.issues.createComment({
             owner,
@@ -32423,7 +32493,7 @@ async function cleanupOldPRComments(octokit, owner, repo, pullNumber, currentRun
             per_page: 100
         });
         const botComments = comments.data.filter(comment => comment.user?.type === 'Bot' &&
-            (comment.body?.includes('🔧 Suggested Fixes') || comment.body?.includes('🔧 Analysis Complete')));
+            comment.body?.includes(WDF_MARKER));
         let deletedCount = 0;
         for (const comment of botComments) {
             const runIdMatch = comment.body?.match(/Run #(\d+)/);
@@ -32460,10 +32530,7 @@ async function cleanupOldReviewComments(octokit, owner, repo, pullNumber, curren
             per_page: 100
         });
         const botReviewComments = reviewComments.data.filter(comment => comment.user?.type === 'Bot' &&
-            (comment.body?.includes('✅ Fix') ||
-                comment.body?.includes('WhyDidItFail') ||
-                comment.body?.includes('🔧 Add') ||
-                comment.body?.includes('🔧 Fix')));
+            comment.body?.includes(WDF_MARKER));
         let deletedCount = 0;
         for (const comment of botReviewComments) {
             const runIdMatch = comment.body?.match(/Run #(\d+)/);
@@ -32537,8 +32604,12 @@ function combineCloseLines(fixes) {
     const groups = [];
     let currentGroup = [fixes[0]];
     for (let i = 1; i < fixes.length; i++) {
-        const prev = currentGroup[currentGroup.length - 1];
+        const prev = currentGroup.at(-1);
         const curr = fixes[i];
+        if (!prev) {
+            currentGroup = [curr];
+            continue;
+        }
         if (curr.line_start - prev.line_end <= 5) {
             currentGroup.push(curr);
         }
@@ -32547,7 +32618,9 @@ function combineCloseLines(fixes) {
             currentGroup = [curr];
         }
     }
-    groups.push(currentGroup);
+    if (currentGroup.length > 0) {
+        groups.push(currentGroup);
+    }
     return groups;
 }
 function buildCombinedSuggestionBody(fixes, useSuggestionSyntax, runId, jobName) {
@@ -32583,7 +32656,8 @@ function buildInlineSuggestionBody(fix, runId, jobName) {
         body += `\n💡 **Tip:** ${tip}\n`;
     }
     body += `\n---\n\n`;
-    body += `<sub>Job: ${jobName} · Run #${runId} · Powered by [WhyDidItFail](https://github.com/marketplace/actions/whydiditfail)</sub>`;
+    body += `<sub>Job: ${jobName} · Run #${runId} · Powered by [WhyDidItFail](https://github.com/marketplace/actions/whydiditfail)</sub>\n\n`;
+    body += WDF_MARKER;
     return body;
 }
 function buildFallbackSuggestionBody(fix, filePath) {
@@ -32620,11 +32694,26 @@ function buildCombinedFallbackBody(fixes, filePath) {
 
 
 
+function parseMaxLogKb(input, defaultValue = 400) {
+    if (!input)
+        return defaultValue;
+    const parsed = Number(input);
+    if (isNaN(parsed) || !isFinite(parsed)) {
+        throw new Error(`max_log_kb must be a valid number, got: ${input}`);
+    }
+    if (parsed <= 0) {
+        throw new Error(`max_log_kb must be positive, got: ${parsed}`);
+    }
+    if (parsed > 10000) {
+        core.warning(`max_log_kb=${parsed} is very large, consider reducing it`);
+    }
+    return parsed;
+}
 async function run() {
     try {
         const serviceUrl = core.getInput("service_url") || "https://api.whydiditfail.com";
         const githubToken = core.getInput("github_token") || process.env.GITHUB_TOKEN;
-        const maxLogKb = Number(core.getInput("max_log_kb") || "400");
+        const maxLogKb = parseMaxLogKb(core.getInput("max_log_kb"));
         const mode = core.getInput("mode") || "summary";
         const suggestFixes = core.getInput("suggest_fixes") !== "false";
         const cleanupOldComments = core.getInput("cleanup_old_comments") === "true";
