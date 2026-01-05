@@ -32290,6 +32290,7 @@ async function postPRReviewComments(octokit, context, fixSuggestions, commitSha,
     const { owner, repo } = context.repo;
     const pullNumber = context.payload.pull_request.number;
     const runId = context.runId;
+    const jobName = context.job;
     if (cleanupOldComments) {
         await cleanupOldPRComments(octokit, owner, repo, pullNumber, runId);
         await cleanupOldReviewComments(octokit, owner, repo, pullNumber, runId);
@@ -32299,7 +32300,7 @@ async function postPRReviewComments(octokit, context, fixSuggestions, commitSha,
     for (const [filePath, fixes] of Object.entries(groupedFixes)) {
         const combinedGroups = combineCloseLines(fixes);
         for (const group of combinedGroups) {
-            const body = buildCombinedSuggestionBody(group, true);
+            const body = buildCombinedSuggestionBody(group, true, runId, jobName);
             const comment = {
                 path: filePath,
                 body,
@@ -32549,22 +32550,19 @@ function combineCloseLines(fixes) {
     groups.push(currentGroup);
     return groups;
 }
-function buildCombinedSuggestionBody(fixes, useSuggestionSyntax) {
+function buildCombinedSuggestionBody(fixes, useSuggestionSyntax, runId, jobName) {
     if (fixes.length === 1) {
-        return buildInlineSuggestionBody(fixes[0]);
+        return buildInlineSuggestionBody(fixes[0], runId, jobName);
     }
     let body = '';
     fixes.forEach((fix, i) => {
         if (i > 0)
             body += '\n---\n\n';
-        body += buildInlineSuggestionBody(fix);
+        body += buildInlineSuggestionBody(fix, runId, jobName);
     });
     return body;
 }
-function buildInlineSuggestionBody(fix) {
-    const context = github.context;
-    const runId = context.runId;
-    const jobName = context.job;
+function buildInlineSuggestionBody(fix, runId, jobName) {
     const errorCode = fix.error_code || 'Error';
     const title = fix.title || 'Suggested fix';
     const rationale = fix.rationale || 'This change should resolve the error.';

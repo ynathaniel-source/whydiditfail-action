@@ -126,6 +126,7 @@ async function postPRReviewComments(
   const { owner, repo } = context.repo;
   const pullNumber = context.payload.pull_request!.number;
   const runId = context.runId;
+  const jobName = context.job;
 
   if (cleanupOldComments) {
     await cleanupOldPRComments(octokit, owner, repo, pullNumber, runId);
@@ -139,7 +140,7 @@ async function postPRReviewComments(
     const combinedGroups = combineCloseLines(fixes);
     
     for (const group of combinedGroups) {
-      const body = buildCombinedSuggestionBody(group, true);
+      const body = buildCombinedSuggestionBody(group, true, runId, jobName);
       
       const comment: any = {
         path: filePath,
@@ -453,25 +454,22 @@ function combineCloseLines(fixes: FixSuggestion[]): FixSuggestion[][] {
   return groups;
 }
 
-function buildCombinedSuggestionBody(fixes: FixSuggestion[], useSuggestionSyntax: boolean): string {
+function buildCombinedSuggestionBody(fixes: FixSuggestion[], useSuggestionSyntax: boolean, runId: number, jobName: string): string {
   if (fixes.length === 1) {
-    return buildInlineSuggestionBody(fixes[0]);
+    return buildInlineSuggestionBody(fixes[0], runId, jobName);
   }
   
   let body = '';
   
   fixes.forEach((fix, i) => {
     if (i > 0) body += '\n---\n\n';
-    body += buildInlineSuggestionBody(fix);
+    body += buildInlineSuggestionBody(fix, runId, jobName);
   });
   
   return body;
 }
 
-function buildInlineSuggestionBody(fix: FixSuggestion): string {
-  const context = github.context;
-  const runId = context.runId;
-  const jobName = context.job;
+function buildInlineSuggestionBody(fix: FixSuggestion, runId: number, jobName: string): string {
   const errorCode = fix.error_code || 'Error';
   const title = fix.title || 'Suggested fix';
   const rationale = fix.rationale || 'This change should resolve the error.';
