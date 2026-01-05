@@ -133,10 +133,23 @@ export function formatSummary(explanation: any, ctx?: RenderContext): string {
     summary += "### 🔧 Code Fix Suggestions\n\n";
     
     const isPR = process.env.GITHUB_EVENT_NAME === 'pull_request';
-    if (isPR) {
+    const prNumber = process.env.GITHUB_REF?.match(/refs\/pull\/(\d+)\//)?.[1];
+    const serverUrl = process.env.GITHUB_SERVER_URL || 'https://github.com';
+    const repository = process.env.GITHUB_REPOSITORY;
+    
+    if (isPR && prNumber && repository) {
+      const prUrl = `${serverUrl}/${repository}/pull/${prNumber}/files`;
+      summary += `> 💡 **[View inline suggestions in the PR →](${prUrl})** Check the \"Files changed\" tab for one-click fixes.\n\n`;
+    } else if (isPR) {
       summary += "> 💡 **Inline suggestions posted to the PR.** Check the \"Files changed\" tab for one-click fixes.\n\n";
     } else {
-      summary += "> 💡 **Fix suggestions posted as commit comments.** Check the commit for details.\n\n";
+      const sha = process.env.GITHUB_SHA;
+      if (sha && repository) {
+        const commitUrl = `${serverUrl}/${repository}/commit/${sha}`;
+        summary += `> 💡 **[View fix suggestions on the commit →](${commitUrl})** Check the commit comments for details.\n\n`;
+      } else {
+        summary += "> 💡 **Fix suggestions posted as commit comments.** Check the commit for details.\n\n";
+      }
     }
 
     fixSuggestions.forEach((fix: any, i: number) => {

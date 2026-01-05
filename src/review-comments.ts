@@ -46,21 +46,28 @@ async function postPRReviewComments(
   const { owner, repo } = context.repo;
   const pullNumber = context.payload.pull_request!.number;
 
-  const comments = fixSuggestions.map(fix => {
-    const body = buildSuggestionBody(fix, true);
+  const groupedFixes = groupFixesByFile(fixSuggestions);
+  const comments: any[] = [];
+
+  for (const [filePath, fixes] of Object.entries(groupedFixes)) {
+    const combinedGroups = combineCloseLines(fixes);
     
-    const comment: any = {
-      path: fix.path,
-      body,
-      line: fix.line_end
-    };
+    for (const group of combinedGroups) {
+      const body = buildCombinedSuggestionBody(group, true);
+      
+      const comment: any = {
+        path: filePath,
+        body,
+        line: group[group.length - 1].line_end
+      };
 
-    if (fix.line_start !== fix.line_end) {
-      comment.start_line = fix.line_start;
+      if (group[0].line_start !== group[group.length - 1].line_end) {
+        comment.start_line = group[0].line_start;
+      }
+
+      comments.push(comment);
     }
-
-    return comment;
-  });
+  }
 
   try {
     await octokit.rest.pulls.createReview({
@@ -73,7 +80,7 @@ async function postPRReviewComments(
     });
 
     core.info(`Posted ${comments.length} inline fix suggestions to PR #${pullNumber}`);
-    return comments.length;
+    return fixSuggestions.length;
   } catch (error: any) {
     if (error?.status === 403 || error?.message?.includes('Resource not accessible')) {
       core.warning(`⚠️  Cannot post PR review comments: missing 'pull-requests: write' permission. Add it to your workflow to enable inline fix suggestions.`);
@@ -118,6 +125,80 @@ async function postCommitComments(
   }
 
   return posted;
+}
+
+function groupFixesByFile(fixes: FixSuggestion[]): Record<string, FixSuggestion[]> {
+  const grouped: Record<string, FixSuggestion[]> = {};
+  
+  for (const fix of fixes) {
+    if (!grouped[fix.path]) {
+      grouped[fix.path] = [];
+    }
+    grouped[fix.path].push(fix);
+  }
+  
+  for (const path in grouped) {
+    grouped[path].sort((a, b) => a.line_start - b.line_start);
+  }
+  
+  return grouped;
+}
+
+function combineCloseLines(fixes: FixSuggestion[]): FixSuggestion[][] {
+  if (fixes.length === 0) return [];
+  if (fixes.length === 1) return [[fixes[0]]];
+  
+  const groups: FixSuggestion[][] = [];
+  let currentGroup: FixSuggestion[] = [fixes[0]];
+  
+  for (let i = 1; i < fixes.length; i++) {
+    const prev = currentGroup[currentGroup.length - 1];
+    const curr = fixes[i];
+    
+    if (curr.line_start - prev.line_end <= 5) {
+      currentGroup.push(curr);
+    } else {
+      groups.push(currentGroup);
+      currentGroup = [curr];
+    }
+  }
+  
+  groups.push(currentGroup);
+  return groups;
+}
+
+function buildCombinedSuggestionBody(fixes: FixSuggestion[], useSuggestionSyntax: boolean): string {
+  if (fixes.length === 1) {
+    return buildSuggestionBody(fixes[0], useSuggestionSyntax);
+  }
+  
+  const avgConfidence = fixes.reduce((sum, f) => sum + f.confidence, 0) / fixes.length;
+  const confidencePercent = Math.round(avgConfidence * 100);
+  
+  let body = `## 🔧 Multiple fixes for this section\n\n`;
+  body += `**Confidence:** ${confidencePercent}%\n\n`;
+  
+  fixes.forEach((fix, i) => {
+    const fixConfidence = Math.round(fix.confidence * 100);
+    body += `### ${i + 1}. ${fix.title || 'Suggested fix'} (${fixConfidence}%)\n\n`;
+    body += `${fix.rationale || 'This change should resolve the error.'}\n\n`;
+    
+    if (useSuggestionSyntax) {
+      body += '```suggestion\n';
+      body += fix.replacement;
+      body += '\n```\n\n';
+    } else {
+      body += '**Suggested code:**\n\n';
+      body += '```\n';
+      body += fix.replacement;
+      body += '\n```\n\n';
+    }
+  });
+  
+  body += '---\n';
+  body += '<sub>💡 Review these suggestions carefully before applying</sub>';
+  
+  return body;
 }
 
 function buildSuggestionBody(fix: FixSuggestion, useSuggestionSyntax: boolean): string {

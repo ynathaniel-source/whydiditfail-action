@@ -31984,11 +31984,25 @@ function formatSummary(explanation, ctx) {
     if (fixSuggestions.length > 0) {
         summary += "### 🔧 Code Fix Suggestions\n\n";
         const isPR = process.env.GITHUB_EVENT_NAME === 'pull_request';
-        if (isPR) {
+        const prNumber = process.env.GITHUB_REF?.match(/refs\/pull\/(\d+)\//)?.[1];
+        const serverUrl = process.env.GITHUB_SERVER_URL || 'https://github.com';
+        const repository = process.env.GITHUB_REPOSITORY;
+        if (isPR && prNumber && repository) {
+            const prUrl = `${serverUrl}/${repository}/pull/${prNumber}/files`;
+            summary += `> 💡 **[View inline suggestions in the PR →](${prUrl})** Check the \"Files changed\" tab for one-click fixes.\n\n`;
+        }
+        else if (isPR) {
             summary += "> 💡 **Inline suggestions posted to the PR.** Check the \"Files changed\" tab for one-click fixes.\n\n";
         }
         else {
-            summary += "> 💡 **Fix suggestions posted as commit comments.** Check the commit for details.\n\n";
+            const sha = process.env.GITHUB_SHA;
+            if (sha && repository) {
+                const commitUrl = `${serverUrl}/${repository}/commit/${sha}`;
+                summary += `> 💡 **[View fix suggestions on the commit →](${commitUrl})** Check the commit comments for details.\n\n`;
+            }
+            else {
+                summary += "> 💡 **Fix suggestions posted as commit comments.** Check the commit for details.\n\n";
+            }
         }
         fixSuggestions.forEach((fix, i) => {
             const confidencePercent = Math.round((fix.confidence ?? 0) * 100);
@@ -32219,18 +32233,23 @@ async function postFixSuggestions(token, fixSuggestions) {
 async function postPRReviewComments(octokit, context, fixSuggestions, commitSha) {
     const { owner, repo } = context.repo;
     const pullNumber = context.payload.pull_request.number;
-    const comments = fixSuggestions.map(fix => {
-        const body = buildSuggestionBody(fix, true);
-        const comment = {
-            path: fix.path,
-            body,
-            line: fix.line_end
-        };
-        if (fix.line_start !== fix.line_end) {
-            comment.start_line = fix.line_start;
+    const groupedFixes = groupFixesByFile(fixSuggestions);
+    const comments = [];
+    for (const [filePath, fixes] of Object.entries(groupedFixes)) {
+        const combinedGroups = combineCloseLines(fixes);
+        for (const group of combinedGroups) {
+            const body = buildCombinedSuggestionBody(group, true);
+            const comment = {
+                path: filePath,
+                body,
+                line: group[group.length - 1].line_end
+            };
+            if (group[0].line_start !== group[group.length - 1].line_end) {
+                comment.start_line = group[0].line_start;
+            }
+            comments.push(comment);
         }
-        return comment;
-    });
+    }
     try {
         await octokit.rest.pulls.createReview({
             owner,
@@ -32241,7 +32260,7 @@ async function postPRReviewComments(octokit, context, fixSuggestions, commitSha)
             comments
         });
         core.info(`Posted ${comments.length} inline fix suggestions to PR #${pullNumber}`);
-        return comments.length;
+        return fixSuggestions.length;
     }
     catch (error) {
         if (error?.status === 403 || error?.message?.includes('Resource not accessible')) {
@@ -32277,6 +32296,68 @@ async function postCommitComments(octokit, context, fixSuggestions, commitSha) {
         core.info(`Posted ${posted} fix suggestions as commit comments`);
     }
     return posted;
+}
+function groupFixesByFile(fixes) {
+    const grouped = {};
+    for (const fix of fixes) {
+        if (!grouped[fix.path]) {
+            grouped[fix.path] = [];
+        }
+        grouped[fix.path].push(fix);
+    }
+    for (const path in grouped) {
+        grouped[path].sort((a, b) => a.line_start - b.line_start);
+    }
+    return grouped;
+}
+function combineCloseLines(fixes) {
+    if (fixes.length === 0)
+        return [];
+    if (fixes.length === 1)
+        return [[fixes[0]]];
+    const groups = [];
+    let currentGroup = [fixes[0]];
+    for (let i = 1; i < fixes.length; i++) {
+        const prev = currentGroup[currentGroup.length - 1];
+        const curr = fixes[i];
+        if (curr.line_start - prev.line_end <= 5) {
+            currentGroup.push(curr);
+        }
+        else {
+            groups.push(currentGroup);
+            currentGroup = [curr];
+        }
+    }
+    groups.push(currentGroup);
+    return groups;
+}
+function buildCombinedSuggestionBody(fixes, useSuggestionSyntax) {
+    if (fixes.length === 1) {
+        return buildSuggestionBody(fixes[0], useSuggestionSyntax);
+    }
+    const avgConfidence = fixes.reduce((sum, f) => sum + f.confidence, 0) / fixes.length;
+    const confidencePercent = Math.round(avgConfidence * 100);
+    let body = `## 🔧 Multiple fixes for this section\n\n`;
+    body += `**Confidence:** ${confidencePercent}%\n\n`;
+    fixes.forEach((fix, i) => {
+        const fixConfidence = Math.round(fix.confidence * 100);
+        body += `### ${i + 1}. ${fix.title || 'Suggested fix'} (${fixConfidence}%)\n\n`;
+        body += `${fix.rationale || 'This change should resolve the error.'}\n\n`;
+        if (useSuggestionSyntax) {
+            body += '```suggestion\n';
+            body += fix.replacement;
+            body += '\n```\n\n';
+        }
+        else {
+            body += '**Suggested code:**\n\n';
+            body += '```\n';
+            body += fix.replacement;
+            body += '\n```\n\n';
+        }
+    });
+    body += '---\n';
+    body += '<sub>💡 Review these suggestions carefully before applying</sub>';
+    return body;
 }
 function buildSuggestionBody(fix, useSuggestionSyntax) {
     const title = fix.title || 'Suggested fix';
