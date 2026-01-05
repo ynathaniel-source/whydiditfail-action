@@ -25,17 +25,17 @@ on: [push, pull_request]
 jobs:
   build:
     runs-on: ubuntu-latest
-    permissions:
+    permissions:  # Add this for inline fix suggestions
       contents: read
-      pull-requests: write  # For inline fix suggestions
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
       
       - name: Run tests
         run: npm test
       
-      - name: Explain failure
-        if: failure()
+      - name: Explain failure  # Add this step
+        if: failure()  # Run only when previous steps fail
         uses: ynathaniel-source/whydiditfail-action@v1
 ```
 
