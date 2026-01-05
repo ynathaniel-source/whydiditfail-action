@@ -102,8 +102,12 @@ async function postPRCommentFallback(
   pullNumber: number
 ): Promise<number> {
   const { owner, repo } = context.repo;
+  const runId = context.runId;
+  const jobName = context.job;
 
-  let body = '## 🔧 Suggested Fixes\n\n';
+  await cleanupOldComments(octokit, owner, repo, pullNumber, runId);
+
+  let body = `## 🔧 Suggested Fixes · ${jobName}\n\n`;
   body += '> 💡 These fixes are for files not changed in this PR, so they appear here instead of as inline suggestions.\n\n';
 
   const groupedFixes = groupFixesByFile(fixSuggestions);
@@ -120,14 +124,14 @@ async function postPRCommentFallback(
         body += `${fix.rationale}\n\n`;
       }
       
-      body += '```suggestion\n';
+      body += '```diff\n';
       body += fix.replacement;
       body += '\n```\n\n';
     }
   }
 
   body += '---\n';
-  body += '<sub>💡 Review these suggestions carefully before applying</sub>';
+  body += `<sub>💡 Review these suggestions carefully before applying · Run #${runId}</sub>`;
 
   try {
     await octokit.rest.issues.createComment({
@@ -142,6 +146,40 @@ async function postPRCommentFallback(
   } catch (error) {
     core.warning(`Failed to post PR comment: ${error}`);
     return 0;
+  }
+}
+
+async function cleanupOldComments(
+  octokit: ReturnType<typeof github.getOctokit>,
+  owner: string,
+  repo: string,
+  pullNumber: number,
+  currentRunId: number
+): Promise<void> {
+  try {
+    const comments = await octokit.rest.issues.listComments({
+      owner,
+      repo,
+      issue_number: pullNumber,
+      per_page: 100
+    });
+
+    const botComments = comments.data.filter(comment => 
+      comment.user?.type === 'Bot' && 
+      comment.body?.includes('🔧 Suggested Fixes') &&
+      !comment.body?.includes(`Run #${currentRunId}`)
+    );
+
+    for (const comment of botComments) {
+      await octokit.rest.issues.deleteComment({
+        owner,
+        repo,
+        comment_id: comment.id
+      });
+      core.info(`Deleted old comment #${comment.id}`);
+    }
+  } catch (error) {
+    core.warning(`Failed to cleanup old comments: ${error}`);
   }
 }
 

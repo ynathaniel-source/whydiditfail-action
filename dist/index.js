@@ -32279,7 +32279,10 @@ async function postPRReviewComments(octokit, context, fixSuggestions, commitSha)
 }
 async function postPRCommentFallback(octokit, context, fixSuggestions, pullNumber) {
     const { owner, repo } = context.repo;
-    let body = '## 🔧 Suggested Fixes\n\n';
+    const runId = context.runId;
+    const jobName = context.job;
+    await cleanupOldComments(octokit, owner, repo, pullNumber, runId);
+    let body = `## 🔧 Suggested Fixes · ${jobName}\n\n`;
     body += '> 💡 These fixes are for files not changed in this PR, so they appear here instead of as inline suggestions.\n\n';
     const groupedFixes = groupFixesByFile(fixSuggestions);
     for (const [filePath, fixes] of Object.entries(groupedFixes)) {
@@ -32291,13 +32294,13 @@ async function postPRCommentFallback(octokit, context, fixSuggestions, pullNumbe
             if (fix.rationale) {
                 body += `${fix.rationale}\n\n`;
             }
-            body += '```suggestion\n';
+            body += '```diff\n';
             body += fix.replacement;
             body += '\n```\n\n';
         }
     }
     body += '---\n';
-    body += '<sub>💡 Review these suggestions carefully before applying</sub>';
+    body += `<sub>💡 Review these suggestions carefully before applying · Run #${runId}</sub>`;
     try {
         await octokit.rest.issues.createComment({
             owner,
@@ -32311,6 +32314,30 @@ async function postPRCommentFallback(octokit, context, fixSuggestions, pullNumbe
     catch (error) {
         core.warning(`Failed to post PR comment: ${error}`);
         return 0;
+    }
+}
+async function cleanupOldComments(octokit, owner, repo, pullNumber, currentRunId) {
+    try {
+        const comments = await octokit.rest.issues.listComments({
+            owner,
+            repo,
+            issue_number: pullNumber,
+            per_page: 100
+        });
+        const botComments = comments.data.filter(comment => comment.user?.type === 'Bot' &&
+            comment.body?.includes('🔧 Suggested Fixes') &&
+            !comment.body?.includes(`Run #${currentRunId}`));
+        for (const comment of botComments) {
+            await octokit.rest.issues.deleteComment({
+                owner,
+                repo,
+                comment_id: comment.id
+            });
+            core.info(`Deleted old comment #${comment.id}`);
+        }
+    }
+    catch (error) {
+        core.warning(`Failed to cleanup old comments: ${error}`);
     }
 }
 async function postCommitComments(octokit, context, fixSuggestions, commitSha) {
