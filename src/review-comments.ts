@@ -119,6 +119,9 @@ async function postPRReviewComments(
 ): Promise<number> {
   const { owner, repo } = context.repo;
   const pullNumber = context.payload.pull_request!.number;
+  const runId = context.runId;
+
+  await cleanupOldReviewComments(octokit, owner, repo, pullNumber, runId);
 
   const groupedFixes = groupFixesByFile(fixSuggestions);
   const comments: any[] = [];
@@ -285,28 +288,67 @@ async function cleanupOldComments(
 
     let deletedCount = 0;
     for (const comment of botComments) {
-      const commentRunId = comment.body?.match(/Run #(\d+)/)?.[1];
-      
-      if (commentRunId && parseInt(commentRunId) !== currentRunId) {
-        try {
-          await octokit.rest.issues.deleteComment({
-            owner,
-            repo,
-            comment_id: comment.id
-          });
-          deletedCount++;
-          core.info(`Deleted old comment #${comment.id} from run #${commentRunId}`);
-        } catch (deleteError) {
-          core.warning(`Failed to delete comment #${comment.id}: ${deleteError}`);
-        }
+      try {
+        await octokit.rest.issues.deleteComment({
+          owner,
+          repo,
+          comment_id: comment.id
+        });
+        deletedCount++;
+        core.info(`Deleted old PR comment #${comment.id}`);
+      } catch (deleteError) {
+        core.warning(`Failed to delete comment #${comment.id}: ${deleteError}`);
       }
     }
     
     if (deletedCount > 0) {
-      core.info(`Cleaned up ${deletedCount} old WhyDidItFail comment(s)`);
+      core.info(`Cleaned up ${deletedCount} old WhyDidItFail PR comment(s)`);
     }
   } catch (error) {
-    core.warning(`Failed to cleanup old comments: ${error}`);
+    core.warning(`Failed to cleanup old PR comments: ${error}`);
+  }
+}
+
+async function cleanupOldReviewComments(
+  octokit: ReturnType<typeof github.getOctokit>,
+  owner: string,
+  repo: string,
+  pullNumber: number,
+  currentRunId: number
+): Promise<void> {
+  try {
+    const reviewComments = await octokit.rest.pulls.listReviewComments({
+      owner,
+      repo,
+      pull_number: pullNumber,
+      per_page: 100
+    });
+
+    const botReviewComments = reviewComments.data.filter(comment => 
+      comment.user?.type === 'Bot' && 
+      (comment.body?.includes('✅ Fix') || comment.body?.includes('WhyDidItFail'))
+    );
+
+    let deletedCount = 0;
+    for (const comment of botReviewComments) {
+      try {
+        await octokit.rest.pulls.deleteReviewComment({
+          owner,
+          repo,
+          comment_id: comment.id
+        });
+        deletedCount++;
+        core.info(`Deleted old inline review comment #${comment.id}`);
+      } catch (deleteError) {
+        core.warning(`Failed to delete review comment #${comment.id}: ${deleteError}`);
+      }
+    }
+    
+    if (deletedCount > 0) {
+      core.info(`Cleaned up ${deletedCount} old WhyDidItFail inline review comment(s)`);
+    }
+  } catch (error) {
+    core.warning(`Failed to cleanup old review comments: ${error}`);
   }
 }
 
