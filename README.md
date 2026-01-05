@@ -44,6 +44,10 @@ Instead of scrolling logs, you get a concise explanation directly in the workflo
 
 When a workflow fails, you'll see a summary like this in your GitHub Actions UI:
 
+<p align="center">
+  <img src="github_action_screenshot.png" alt="GitHub Action Failure Analysis Screenshot" width="800">
+</p>
+
 ```markdown
 ## 🔍 Failure Analysis
 
