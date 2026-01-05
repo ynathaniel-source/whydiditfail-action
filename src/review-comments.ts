@@ -300,16 +300,21 @@ async function cleanupOldPRComments(
 
     let deletedCount = 0;
     for (const comment of botComments) {
-      try {
-        await octokit.rest.issues.deleteComment({
-          owner,
-          repo,
-          comment_id: comment.id
-        });
-        deletedCount++;
-        core.info(`Deleted old PR comment #${comment.id}`);
-      } catch (deleteError) {
-        core.warning(`Failed to delete comment #${comment.id}: ${deleteError}`);
+      const runIdMatch = comment.body?.match(/Run #(\d+)/);
+      const commentRunId = runIdMatch ? parseInt(runIdMatch[1], 10) : null;
+      
+      if (commentRunId !== null && commentRunId !== currentRunId) {
+        try {
+          await octokit.rest.issues.deleteComment({
+            owner,
+            repo,
+            comment_id: comment.id
+          });
+          deletedCount++;
+          core.info(`Deleted old PR comment #${comment.id} from run #${commentRunId}`);
+        } catch (deleteError) {
+          core.warning(`Failed to delete comment #${comment.id}: ${deleteError}`);
+        }
       }
     }
     
@@ -346,16 +351,21 @@ async function cleanupOldReviewComments(
 
     let deletedCount = 0;
     for (const comment of botReviewComments) {
-      try {
-        await octokit.rest.pulls.deleteReviewComment({
-          owner,
-          repo,
-          comment_id: comment.id
-        });
-        deletedCount++;
-        core.info(`Deleted old inline review comment #${comment.id}`);
-      } catch (deleteError) {
-        core.warning(`Failed to delete review comment #${comment.id}: ${deleteError}`);
+      const runIdMatch = comment.body?.match(/Run #(\d+)/);
+      const commentRunId = runIdMatch ? parseInt(runIdMatch[1], 10) : null;
+      
+      if (commentRunId !== null && commentRunId !== currentRunId) {
+        try {
+          await octokit.rest.pulls.deleteReviewComment({
+            owner,
+            repo,
+            comment_id: comment.id
+          });
+          deletedCount++;
+          core.info(`Deleted old inline review comment #${comment.id} from run #${commentRunId}`);
+        } catch (deleteError) {
+          core.warning(`Failed to delete review comment #${comment.id}: ${deleteError}`);
+        }
       }
     }
     
@@ -459,6 +469,9 @@ function buildCombinedSuggestionBody(fixes: FixSuggestion[], useSuggestionSyntax
 }
 
 function buildInlineSuggestionBody(fix: FixSuggestion): string {
+  const context = github.context;
+  const runId = context.runId;
+  const jobName = context.job;
   const errorCode = fix.error_code || 'Error';
   const title = fix.title || 'Suggested fix';
   const rationale = fix.rationale || 'This change should resolve the error.';
@@ -483,7 +496,7 @@ function buildInlineSuggestionBody(fix: FixSuggestion): string {
   }
   
   body += `\n---\n\n`;
-  body += `<sub>Powered by [WhyDidItFail](https://github.com/marketplace/actions/whydiditfail)</sub>`;
+  body += `<sub>Job: ${jobName} · Run #${runId} · Powered by [WhyDidItFail](https://github.com/marketplace/actions/whydiditfail)</sub>`;
 
   return body;
 }
