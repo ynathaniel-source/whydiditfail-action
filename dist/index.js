@@ -32212,7 +32212,7 @@ function validatePayloadSize(payload) {
 ;// CONCATENATED MODULE: ./src/review-comments.ts
 
 
-async function postFixSuggestions(token, fixSuggestions, apiResponse) {
+async function postFixSuggestions(token, fixSuggestions, apiResponse, cleanupOldComments = false) {
     const context = github.context;
     const octokit = github.getOctokit(token);
     const isPR = context.payload.pull_request !== undefined;
@@ -32220,7 +32220,7 @@ async function postFixSuggestions(token, fixSuggestions, apiResponse) {
     if (!fixSuggestions || fixSuggestions.length === 0) {
         if (isPR && apiResponse?.root_cause) {
             const pullNumber = context.payload.pull_request.number;
-            await postNoSuggestionComment(octokit, context, pullNumber, apiResponse);
+            await postNoSuggestionComment(octokit, context, pullNumber, apiResponse, cleanupOldComments);
             return { posted: 1, skipped: 0 };
         }
         return { posted: 0, skipped: 0 };
@@ -32228,18 +32228,21 @@ async function postFixSuggestions(token, fixSuggestions, apiResponse) {
     let posted = 0;
     let skipped = 0;
     if (isPR) {
-        posted = await postPRReviewComments(octokit, context, fixSuggestions, commitSha, apiResponse);
+        posted = await postPRReviewComments(octokit, context, fixSuggestions, commitSha, apiResponse, cleanupOldComments);
     }
     else {
         posted = await postCommitComments(octokit, context, fixSuggestions, commitSha);
     }
     return { posted, skipped: fixSuggestions.length - posted };
 }
-async function postNoSuggestionComment(octokit, context, pullNumber, apiResponse) {
+async function postNoSuggestionComment(octokit, context, pullNumber, apiResponse, cleanupOldComments = false) {
     const { owner, repo } = context.repo;
     const runId = context.runId;
     const jobName = context.job;
-    await cleanupOldComments(octokit, owner, repo, pullNumber, runId);
+    if (cleanupOldComments) {
+        await cleanupOldPRComments(octokit, owner, repo, pullNumber, runId);
+        await cleanupOldReviewComments(octokit, owner, repo, pullNumber, runId);
+    }
     const rootCause = apiResponse.root_cause || 'Test failed';
     const category = apiResponse.category || 'unknown';
     let body = `### 🔧 Analysis Complete\n\n`;
@@ -32283,11 +32286,13 @@ async function postNoSuggestionComment(octokit, context, pullNumber, apiResponse
         core.warning(`Failed to post no-suggestion comment: ${error}`);
     }
 }
-async function postPRReviewComments(octokit, context, fixSuggestions, commitSha, apiResponse) {
+async function postPRReviewComments(octokit, context, fixSuggestions, commitSha, apiResponse, cleanupOldComments = false) {
     const { owner, repo } = context.repo;
     const pullNumber = context.payload.pull_request.number;
     const runId = context.runId;
-    await cleanupOldReviewComments(octokit, owner, repo, pullNumber, runId);
+    if (cleanupOldComments) {
+        await cleanupOldReviewComments(octokit, owner, repo, pullNumber, runId);
+    }
     const groupedFixes = groupFixesByFile(fixSuggestions);
     const comments = [];
     for (const [filePath, fixes] of Object.entries(groupedFixes)) {
@@ -32324,7 +32329,7 @@ async function postPRReviewComments(octokit, context, fixSuggestions, commitSha,
         }
         else if (error?.status === 422 || error?.message?.includes('Path could not be resolved')) {
             core.info(`Files not in PR diff, falling back to PR comment`);
-            return await postPRCommentFallback(octokit, context, fixSuggestions, pullNumber, apiResponse);
+            return await postPRCommentFallback(octokit, context, fixSuggestions, pullNumber, apiResponse, cleanupOldComments);
         }
         else {
             core.warning(`Failed to post PR review comments: ${error}`);
@@ -32332,11 +32337,13 @@ async function postPRReviewComments(octokit, context, fixSuggestions, commitSha,
         }
     }
 }
-async function postPRCommentFallback(octokit, context, fixSuggestions, pullNumber, apiResponse) {
+async function postPRCommentFallback(octokit, context, fixSuggestions, pullNumber, apiResponse, cleanupOldComments = false) {
     const { owner, repo } = context.repo;
     const runId = context.runId;
     const jobName = context.job;
-    await cleanupOldComments(octokit, owner, repo, pullNumber, runId);
+    if (cleanupOldComments) {
+        await cleanupOldPRComments(octokit, owner, repo, pullNumber, runId);
+    }
     let body = `### 🔧 Suggested Fixes\n\n`;
     body += `> These apply to files **not modified in this PR**, so they're listed here instead of inline suggestions.\n\n`;
     if (apiResponse) {
@@ -32405,7 +32412,7 @@ function detectLanguage(filePath) {
     };
     return langMap[ext || ''] || 'text';
 }
-async function cleanupOldComments(octokit, owner, repo, pullNumber, currentRunId) {
+async function cleanupOldPRComments(octokit, owner, repo, pullNumber, currentRunId) {
     try {
         const comments = await octokit.rest.issues.listComments({
             owner,
@@ -32607,6 +32614,7 @@ async function run() {
         const maxLogKb = Number(core.getInput("max_log_kb") || "400");
         const mode = core.getInput("mode") || "summary";
         const suggestFixes = core.getInput("suggest_fixes") !== "false";
+        const cleanupOldComments = core.getInput("cleanup_old_comments") === "true";
         const logs = await fetchJobLogsBestEffort(maxLogKb, githubToken);
         const payload = {
             repo: github.context.payload.repository?.full_name ?? github.context.repo.owner + "/" + github.context.repo.repo,
@@ -32629,7 +32637,7 @@ async function run() {
         }
         await postSummary(result);
         if (suggestFixes && result.fix_suggestions && result.fix_suggestions.length > 0 && githubToken) {
-            const { posted, skipped } = await postFixSuggestions(githubToken, result.fix_suggestions, result);
+            const { posted, skipped } = await postFixSuggestions(githubToken, result.fix_suggestions, result, cleanupOldComments);
             if (posted > 0) {
                 core.info(`✅ Posted ${posted} fix suggestion(s)`);
             }

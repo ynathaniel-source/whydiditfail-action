@@ -17,7 +17,8 @@ export interface FixSuggestion {
 export async function postFixSuggestions(
   token: string,
   fixSuggestions: FixSuggestion[],
-  apiResponse?: any
+  apiResponse?: any,
+  cleanupOldComments: boolean = false
 ): Promise<{ posted: number; skipped: number }> {
   const context = github.context;
   const octokit = github.getOctokit(token);
@@ -27,7 +28,7 @@ export async function postFixSuggestions(
   if (!fixSuggestions || fixSuggestions.length === 0) {
     if (isPR && apiResponse?.root_cause) {
       const pullNumber = context.payload.pull_request!.number;
-      await postNoSuggestionComment(octokit, context, pullNumber, apiResponse);
+      await postNoSuggestionComment(octokit, context, pullNumber, apiResponse, cleanupOldComments);
       return { posted: 1, skipped: 0 };
     }
     return { posted: 0, skipped: 0 };
@@ -37,7 +38,7 @@ export async function postFixSuggestions(
   let skipped = 0;
 
   if (isPR) {
-    posted = await postPRReviewComments(octokit, context, fixSuggestions, commitSha, apiResponse);
+    posted = await postPRReviewComments(octokit, context, fixSuggestions, commitSha, apiResponse, cleanupOldComments);
   } else {
     posted = await postCommitComments(octokit, context, fixSuggestions, commitSha);
   }
@@ -49,13 +50,17 @@ async function postNoSuggestionComment(
   octokit: ReturnType<typeof github.getOctokit>,
   context: typeof github.context,
   pullNumber: number,
-  apiResponse: any
+  apiResponse: any,
+  cleanupOldComments: boolean = false
 ): Promise<void> {
   const { owner, repo } = context.repo;
   const runId = context.runId;
   const jobName = context.job;
 
-  await cleanupOldComments(octokit, owner, repo, pullNumber, runId);
+  if (cleanupOldComments) {
+    await cleanupOldPRComments(octokit, owner, repo, pullNumber, runId);
+    await cleanupOldReviewComments(octokit, owner, repo, pullNumber, runId);
+  }
 
   const rootCause = apiResponse.root_cause || 'Test failed';
   const category = apiResponse.category || 'unknown';
@@ -115,13 +120,16 @@ async function postPRReviewComments(
   context: typeof github.context,
   fixSuggestions: FixSuggestion[],
   commitSha: string,
-  apiResponse?: any
+  apiResponse?: any,
+  cleanupOldComments: boolean = false
 ): Promise<number> {
   const { owner, repo } = context.repo;
   const pullNumber = context.payload.pull_request!.number;
   const runId = context.runId;
 
-  await cleanupOldReviewComments(octokit, owner, repo, pullNumber, runId);
+  if (cleanupOldComments) {
+    await cleanupOldReviewComments(octokit, owner, repo, pullNumber, runId);
+  }
 
   const groupedFixes = groupFixesByFile(fixSuggestions);
   const comments: any[] = [];
@@ -164,7 +172,7 @@ async function postPRReviewComments(
       return 0;
     } else if (error?.status === 422 || error?.message?.includes('Path could not be resolved')) {
       core.info(`Files not in PR diff, falling back to PR comment`);
-      return await postPRCommentFallback(octokit, context, fixSuggestions, pullNumber, apiResponse);
+      return await postPRCommentFallback(octokit, context, fixSuggestions, pullNumber, apiResponse, cleanupOldComments);
     } else {
       core.warning(`Failed to post PR review comments: ${error}`);
       return 0;
@@ -177,13 +185,16 @@ async function postPRCommentFallback(
   context: typeof github.context,
   fixSuggestions: FixSuggestion[],
   pullNumber: number,
-  apiResponse?: any
+  apiResponse?: any,
+  cleanupOldComments: boolean = false
 ): Promise<number> {
   const { owner, repo } = context.repo;
   const runId = context.runId;
   const jobName = context.job;
 
-  await cleanupOldComments(octokit, owner, repo, pullNumber, runId);
+  if (cleanupOldComments) {
+    await cleanupOldPRComments(octokit, owner, repo, pullNumber, runId);
+  }
 
   let body = `### 🔧 Suggested Fixes\n\n`;
   body += `> These apply to files **not modified in this PR**, so they're listed here instead of inline suggestions.\n\n`;
@@ -266,7 +277,7 @@ function detectLanguage(filePath: string): string {
   return langMap[ext || ''] || 'text';
 }
 
-async function cleanupOldComments(
+async function cleanupOldPRComments(
   octokit: ReturnType<typeof github.getOctokit>,
   owner: string,
   repo: string,

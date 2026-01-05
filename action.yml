@@ -29,6 +29,10 @@ inputs:
     description: "Post inline fix suggestions as PR review comments or commit comments"
     required: false
     default: "true"
+  cleanup_old_comments:
+    description: "Clean up old WhyDidItFail comments from previous runs (set to true in only ONE job)"
+    required: false
+    default: "false"
 runs:
   using: "node20"
   main: "dist/index.js"
