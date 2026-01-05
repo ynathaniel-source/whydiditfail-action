@@ -28,12 +28,12 @@ function parseMaxLogKb(input: string | undefined, defaultValue: number = 400): n
 
 async function run() {
   try {
-    const serviceUrl = core.getInput("service_url") || "https://api.whydiditfail.com";
+    const serviceUrl = core.getInput("service_url") || "https://wlsuvpvhv2.execute-api.us-east-1.amazonaws.com";
     const githubToken = core.getInput("github_token") || process.env.GITHUB_TOKEN;
     const maxLogKb = parseMaxLogKb(core.getInput("max_log_kb"));
     const mode = core.getInput("mode") || "summary";
     const suggestFixes = core.getInput("suggest_fixes") !== "false";
-    const cleanupOldComments = core.getInput("cleanup_old_comments") === "true";
+    const cleanupOldComments = core.getInput("cleanup_old_comments") !== "false";
 
     const logs = await fetchJobLogsBestEffort(maxLogKb, githubToken);
 

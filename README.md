@@ -25,6 +25,9 @@ on: [push, pull_request]
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write  # For inline fix suggestions
     steps:
       - uses: actions/checkout@v4
       
@@ -37,6 +40,8 @@ jobs:
 ```
 
 That's it! No API keys, no secrets, no deployment needed.
+
+> **Note:** The `pull-requests: write` permission enables inline fix suggestions on PRs. Without it, the action will still work and post summaries, but won't post PR review comments.
 
 ## What you'll see when CI fails
 

@@ -3,7 +3,7 @@ import * as github from "@actions/github";
 import fs from "node:fs";
 
 export async function fetchJobLogsBestEffort(maxLogKb: number, token?: string): Promise<string> {
-  const path = process.env.WHYDIDITFAIL_LOG_PATH;
+  const path = process.env.WHYDIDITFAIL_LOG_PATH || (process.env.RUNNER_TEMP ? `${process.env.RUNNER_TEMP}/whydiditfail.log` : undefined);
   if (path && fs.existsSync(path)) {
     core.info(`Using logs from file: ${path}`);
     const buf = fs.readFileSync(path);
