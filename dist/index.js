@@ -32282,25 +32282,25 @@ async function postPRCommentFallback(octokit, context, fixSuggestions, pullNumbe
     const runId = context.runId;
     const jobName = context.job;
     await cleanupOldComments(octokit, owner, repo, pullNumber, runId);
-    let body = `## 🔧 Suggested Fixes · ${jobName}\n\n`;
-    body += '> 💡 These fixes are for files not changed in this PR, so they appear here instead of as inline suggestions.\n\n';
+    let body = `### 🔧 Suggested Fixes\n\n`;
+    body += `> These apply to files **not modified in this PR**, so they're listed here instead of inline suggestions.\n\n`;
+    body += `---\n\n`;
     const groupedFixes = groupFixesByFile(fixSuggestions);
     for (const [filePath, fixes] of Object.entries(groupedFixes)) {
-        body += `### 📁 \`${filePath}\`\n\n`;
+        body += `#### 📄 \`${filePath}\`\n\n`;
         for (const fix of fixes) {
-            const confidencePercent = Math.round(fix.confidence * 100);
-            body += `#### ${fix.title || 'Suggested fix'} (${confidencePercent}% confidence)\n\n`;
-            body += `**Lines ${fix.line_start}-${fix.line_end}**\n\n`;
-            if (fix.rationale) {
-                body += `${fix.rationale}\n\n`;
-            }
-            body += '```diff\n';
+            const title = fix.title || 'Fix compilation error';
+            const rationale = fix.rationale || 'This change resolves the error.';
+            body += `**Issue:** ${title}\n\n`;
+            body += `**Fix:** ${rationale}\n\n`;
+            const language = detectLanguage(filePath);
+            body += `\`\`\`${language}\n`;
             body += fix.replacement;
             body += '\n```\n\n';
         }
+        body += '---\n\n';
     }
-    body += '---\n';
-    body += `<sub>💡 Review these suggestions carefully before applying · Run #${runId}</sub>`;
+    body += `<sub>Job: ${jobName} · Run #${runId}</sub>`;
     try {
         await octokit.rest.issues.createComment({
             owner,
@@ -32315,6 +32315,27 @@ async function postPRCommentFallback(octokit, context, fixSuggestions, pullNumbe
         core.warning(`Failed to post PR comment: ${error}`);
         return 0;
     }
+}
+function detectLanguage(filePath) {
+    const ext = filePath.split('.').pop()?.toLowerCase();
+    const langMap = {
+        'ts': 'typescript',
+        'tsx': 'typescript',
+        'js': 'javascript',
+        'jsx': 'javascript',
+        'py': 'python',
+        'go': 'go',
+        'rs': 'rust',
+        'java': 'java',
+        'cpp': 'cpp',
+        'c': 'c',
+        'rb': 'ruby',
+        'php': 'php',
+        'cs': 'csharp',
+        'swift': 'swift',
+        'kt': 'kotlin'
+    };
+    return langMap[ext || ''] || 'text';
 }
 async function cleanupOldComments(octokit, owner, repo, pullNumber, currentRunId) {
     try {
