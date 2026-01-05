@@ -32325,15 +32325,27 @@ async function cleanupOldComments(octokit, owner, repo, pullNumber, currentRunId
             per_page: 100
         });
         const botComments = comments.data.filter(comment => comment.user?.type === 'Bot' &&
-            comment.body?.includes('🔧 Suggested Fixes') &&
-            !comment.body?.includes(`Run #${currentRunId}`));
+            comment.body?.includes('🔧 Suggested Fixes'));
+        let deletedCount = 0;
         for (const comment of botComments) {
-            await octokit.rest.issues.deleteComment({
-                owner,
-                repo,
-                comment_id: comment.id
-            });
-            core.info(`Deleted old comment #${comment.id}`);
+            const commentRunId = comment.body?.match(/Run #(\d+)/)?.[1];
+            if (commentRunId && parseInt(commentRunId) !== currentRunId) {
+                try {
+                    await octokit.rest.issues.deleteComment({
+                        owner,
+                        repo,
+                        comment_id: comment.id
+                    });
+                    deletedCount++;
+                    core.info(`Deleted old comment #${comment.id} from run #${commentRunId}`);
+                }
+                catch (deleteError) {
+                    core.warning(`Failed to delete comment #${comment.id}: ${deleteError}`);
+                }
+            }
+        }
+        if (deletedCount > 0) {
+            core.info(`Cleaned up ${deletedCount} old comment(s)`);
         }
     }
     catch (error) {
