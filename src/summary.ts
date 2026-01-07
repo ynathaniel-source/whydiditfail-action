@@ -351,8 +351,17 @@ function formatMultiJobSummary(result: any, ctx?: RenderContext): string {
   // Usage info at the top
   const successfulAnalyses = jobs.filter((j: any) => j.success && !j.skipped && !j.isCascadingFailure).length;
   output += `🔢 **Analyses Used:** ${successfulAnalyses} this run`;
+  
+  if (result.remaining !== undefined && result.limit !== undefined) {
+    output += ` · **Remaining:** ${result.remaining} / ${result.limit}`;
+    if (result.reset_at) {
+      const resetDate = new Date(result.reset_at);
+      output += ` (resets ${resetDate.toLocaleString('en-US', { month: 'short', day: 'numeric' })})`;
+    }
+  }
+  
   if (summary.jobsSkippedCascading > 0) {
-    output += ` (${summary.jobsSkippedCascading} skipped as cascading failures)`;
+    output += `\n\n${summary.jobsSkippedCascading} job${summary.jobsSkippedCascading !== 1 ? 's' : ''} skipped as cascading failures`;
   }
   output += `\n\n`;
   output += "---\n\n";
@@ -367,29 +376,43 @@ function formatMultiJobSummary(result: any, ctx?: RenderContext): string {
       const firstJobName = rc.affectedJobs?.[0];
       const firstJob = jobs.find((j: any) => j.jobName === firstJobName);
       
-      output += `**Affected Jobs:** ${rc.affectedJobs.join(', ')}`;
+      const parts: string[] = [];
       
-      if (firstJob) {
-        if (firstJob.category) {
-          output += ` · **Category:** \`${firstJob.category}\``;
+      // Job names
+      parts.push(rc.affectedJobs.join(', '));
+      
+      // Category
+      if (firstJob?.category) {
+        parts.push(`\`${firstJob.category}\``);
+      }
+      
+      // Affected file with line number
+      const locs = Array.isArray(firstJob?.locations) ? firstJob.locations : [];
+      if (locs.length > 0 && ctx) {
+        const firstLoc = locs[0];
+        let path = firstLoc.path || '';
+        
+        // Clean up path - remove workspace prefix if present
+        const workspaceMatch = path.match(/\/home\/runner\/work\/[^\/]+\/[^\/]+\/(.+)$/);
+        if (workspaceMatch) {
+          path = workspaceMatch[1];
         }
         
-        // Get first affected file
-        const locs = Array.isArray(firstJob.locations) ? firstJob.locations : [];
-        if (locs.length > 0 && ctx) {
-          const firstLoc = locs[0];
+        // Skip invalid paths
+        if (path && !path.includes('[eval]') && !path.includes('<') && !path.includes('>')) {
           const repoUrl = `${ctx.serverUrl}/${ctx.repository}`;
           const lineStart = firstLoc.line_start || firstLoc.line;
           const lineEnd = firstLoc.line_end;
           const anchor = lineStart ? (lineEnd && lineEnd > lineStart ? `#L${lineStart}-L${lineEnd}` : `#L${lineStart}`) : '';
-          const fileLink = `${repoUrl}/blob/${ctx.sha || 'main'}/${firstLoc.path}${anchor}`;
-          const displayPath = lineStart ? `${firstLoc.path}:${lineStart}` : firstLoc.path;
-          output += ` · **Affected File:** [${displayPath}](${fileLink})`;
-        } else if (locs.length > 0) {
-          output += ` · **Affected File:** \`${locs[0].path}\``;
+          const fileLink = `${repoUrl}/blob/${ctx.sha || 'main'}/${path}${anchor}`;
+          const displayPath = lineStart ? `${path}:${lineStart}` : path;
+          parts.push(`[${displayPath}](${fileLink})`);
         }
+      } else if (locs.length > 0 && locs[0].path) {
+        parts.push(`\`${locs[0].path}\``);
       }
       
+      output += parts.join(' · ');
       output += "\n\n";
       
       if (rc.fixes && rc.fixes.length > 0) {
