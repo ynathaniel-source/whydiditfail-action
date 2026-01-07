@@ -31959,7 +31959,9 @@ function formatSummary(explanation, ctx) {
             title = rootCause;
         }
     }
-    let summary = `## 🔎 Failure Analysis · ${title}\n\n`;
+    let summary = title === "Failure Analysis"
+        ? `## 🔎 Failure Analysis\n\n`
+        : `## 🔎 Failure Analysis · ${title}\n\n`;
     summary += `${confidenceEmoji} **Confidence:** ${confidencePercent}% · **Category:** \`${category}\` · **ETA:** ${timeToFix} · 📊 **Usage:** ${remaining} / ${limit} remaining${resetText}\n\n`;
     if (e.grace_period?.active) {
         summary += `> ⚠️ **Grace Period Active:** You've exceeded your monthly limit but have **${e.grace_period.remaining}** grace analyses remaining.\n\n`;

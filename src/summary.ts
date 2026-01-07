@@ -71,7 +71,9 @@ export function formatSummary(explanation: any, ctx?: RenderContext): string {
     }
   }
 
-  let summary = `## 🔎 Failure Analysis · ${title}\n\n`;
+  let summary = title === "Failure Analysis" 
+    ? `## 🔎 Failure Analysis\n\n`
+    : `## 🔎 Failure Analysis · ${title}\n\n`;
   
   summary += `${confidenceEmoji} **Confidence:** ${confidencePercent}% · **Category:** \`${category}\` · **ETA:** ${timeToFix} · 📊 **Usage:** ${remaining} / ${limit} remaining${resetText}\n\n`;
   
