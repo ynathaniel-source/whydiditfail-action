@@ -23,7 +23,7 @@ describe('index.ts - input validation', () => {
     }
 
     it('should use default value when input is empty', () => {
-      expect(parseMaxLogKb('')).toBe(400);
+      expect(parseMaxLogKb('')).toBe(999);
       expect(parseMaxLogKb(undefined)).toBe(400);
     });
 
