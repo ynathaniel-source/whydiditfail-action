@@ -12,7 +12,7 @@ inputs:
   service_url:
     description: "Base URL of the explanation service (uses hosted service by default)"
     required: false
-    default: "https://wlsuvpvhv2.execute-api.us-east-1.amazonaws.com"
+    default: "https://4tt0zovbna.execute-api.us-east-1.amazonaws.com"
   mode:
     description: "Output mode: 'summary' (job summary) or 'comment' (PR comment)"
     required: false
