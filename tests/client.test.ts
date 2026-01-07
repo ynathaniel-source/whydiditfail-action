@@ -210,9 +210,9 @@ describe('client.ts', () => {
         headers: new Map(),
       });
 
-      await expect(
-        explainFailure('https://api.test.com', { test: 'data' })
-      ).rejects.toThrow('Analysis skipped');
+      const result = await explainFailure('https://api.test.com', { test: 'data' });
+      expect(result.skipped).toBe(true);
+      expect(result.reason).toBe('Low confidence');
     });
   });
 });

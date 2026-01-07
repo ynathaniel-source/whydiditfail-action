@@ -9,6 +9,57 @@ export interface RenderContext {
 export function formatSummary(explanation: any, ctx?: RenderContext): string {
   const e = explanation ?? {};
   
+  if (e.skipped) {
+    let summary = "# ⏭️ Analysis Skipped\n\n";
+    summary += "> ℹ️ **WhyDidItFail skipped this analysis to save costs.**\n\n";
+    
+    if (e.code === "LOW_CONFIDENCE") {
+      summary += "### 📊 Low Confidence Detection\n\n";
+      
+      if (e.confidenceScore !== undefined) {
+        const scorePercent = Math.round(e.confidenceScore * 100);
+        summary += `**Confidence Score:** ${scorePercent}%\n\n`;
+      }
+      
+      if (e.reason) {
+        summary += `**Reason:** ${e.reason}\n\n`;
+      }
+      
+      if (e.autoFetch?.attempted) {
+        summary += "### 🔄 Auto-Fetch Attempt\n\n";
+        summary += "The service attempted to gather more context:\n\n";
+        
+        const fetched = e.autoFetch.fetched || {};
+        summary += `- **Job Logs:** ${fetched.jobLogs ? '✅ Fetched' : '❌ Not available'}\n`;
+        summary += `- **Workflow YAML:** ${fetched.workflow ? '✅ Fetched' : '❌ Not available'}\n\n`;
+        
+        if (e.autoFetch.errors && e.autoFetch.errors.length > 0) {
+          summary += "**Errors:**\n";
+          e.autoFetch.errors.forEach((err: string) => {
+            summary += `- ${err}\n`;
+          });
+          summary += "\n";
+        }
+      }
+      
+      if (e.suggestions && e.suggestions.length > 0) {
+        summary += "### 💡 Suggestions\n\n";
+        e.suggestions.forEach((suggestion: string) => {
+          summary += `- ${suggestion}\n`;
+        });
+        summary += "\n";
+      }
+    }
+    
+    summary += "---\n\n";
+    summary += "### ✅ No Costs Incurred\n\n";
+    summary += "This analysis was skipped before calling the AI service, so no API tokens were consumed.\n\n";
+    summary += "---\n\n";
+    summary += '<sub>Powered by <a href="https://github.com/marketplace/actions/whydiditfail">WhyDidItFail</a></sub>\n';
+    
+    return summary;
+  }
+  
   if (e.rate_limited) {
     let summary = "# 🚦 Rate Limit Reached\n\n";
     summary += "> ⚠️ **WhyDidItFail has reached its analysis limit for this repository.**\n\n";

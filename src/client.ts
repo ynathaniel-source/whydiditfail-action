@@ -121,14 +121,6 @@ export async function explainFailure(serviceUrl: string, payload: any, githubTok
     
     const result = await res.json();
     
-    if (result.skipped) {
-      throw new Error(
-        `Analysis skipped by service. ` +
-        `Reason: ${result.reason || "Low confidence or insufficient signal"}. ` +
-        `No tokens were consumed.`
-      );
-    }
-    
     const limit = res.headers.get('x-ratelimit-limit');
     const remaining = res.headers.get('x-ratelimit-remaining');
     const resetAt = res.headers.get('x-ratelimit-reset');

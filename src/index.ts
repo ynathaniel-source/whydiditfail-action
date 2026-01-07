@@ -5,6 +5,7 @@ import { postSummary } from "./summary.js";
 import { explainFailure } from "./client.js";
 import { validatePayloadSize } from "./logLimits.js";
 import { postFixSuggestions } from "./review-comments.js";
+import { getGitContext } from "./git-context.js";
 
 function parseMaxLogKb(input: string | undefined, defaultValue: number = 400): number {
   if (!input) return defaultValue;
@@ -36,6 +37,7 @@ async function run() {
     const cleanupOldComments = core.getInput("cleanup_old_comments") !== "false";
 
     const logs = await fetchJobLogsBestEffort(maxLogKb, githubToken);
+    const gitContext = await getGitContext(githubToken || "");
 
     const payload = {
       repo: context.payload.repository?.full_name ?? context.repo.owner + "/" + context.repo.repo,
@@ -49,7 +51,14 @@ async function run() {
       sha: context.sha,
       runner_os: process.env.RUNNER_OS ?? "unknown",
       failed_step: "unknown",
-      log_excerpt: logs
+      log_excerpt: logs,
+      base_sha: gitContext.base_sha,
+      modified_files: gitContext.modified_files,
+      commit_messages: gitContext.commit_messages,
+      diff: gitContext.diff,
+      only_tests_changed: gitContext.only_tests_changed,
+      dependencies_changed: gitContext.dependencies_changed,
+      ci_config_changed: gitContext.ci_config_changed
     };
 
     validatePayloadSize(payload);
@@ -61,6 +70,11 @@ async function run() {
     }
 
     await postSummary(result);
+
+    if (result.skipped) {
+      core.info(`⏭️ Analysis skipped: ${result.reason || 'Low confidence'} (no costs incurred)`);
+      return;
+    }
 
     if (suggestFixes && result.fix_suggestions && result.fix_suggestions.length > 0 && githubToken) {
       const { posted, skipped } = await postFixSuggestions(githubToken, result.fix_suggestions, result, cleanupOldComments);
