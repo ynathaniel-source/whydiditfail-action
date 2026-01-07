@@ -47,31 +47,46 @@ async function fetchLogsFromGitHub(token?: string): Promise<string> {
     run_id: runId,
   });
 
-  const currentJob = jobs.jobs.find((job) => job.name === currentJobName);
+  const failedJobs = jobs.jobs.filter(
+    (job) => 
+      job.conclusion === 'failure' && 
+      job.name !== currentJobName &&
+      job.status === 'completed'
+  );
 
-  if (!currentJob) {
-    core.warning(`Could not find current job: ${currentJobName}`);
-    return `Could not find logs for job: ${currentJobName}`;
+  if (failedJobs.length === 0) {
+    core.info('No completed failed jobs found to analyze');
+    return 'No failed jobs available for analysis yet. This action should run after other jobs fail.';
   }
 
-  core.info(`Downloading logs for current job: ${currentJob.name} (${currentJob.id})`);
+  const allLogs: string[] = [];
 
-  try {
-    const logResponse = await octokit.rest.actions.downloadJobLogsForWorkflowRun({
-      owner,
-      repo,
-      job_id: currentJob.id,
-    });
+  for (const job of failedJobs) {
+    core.info(`Downloading logs for failed job: ${job.name} (${job.id})`);
+    
+    try {
+      const logResponse = await octokit.rest.actions.downloadJobLogsForWorkflowRun({
+        owner,
+        repo,
+        job_id: job.id,
+      });
 
-    const logs = typeof logResponse.data === 'string' 
-      ? logResponse.data 
-      : Buffer.from(logResponse.data as ArrayBuffer).toString('utf-8');
+      const logs = typeof logResponse.data === 'string' 
+        ? logResponse.data 
+        : Buffer.from(logResponse.data as ArrayBuffer).toString('utf-8');
 
-    return extractRelevantLogs(logs, currentJob.name);
-  } catch (error) {
-    core.warning(`Failed to download logs for job ${currentJob.name}: ${error}`);
-    return `Failed to download logs: ${error}`;
+      const relevantLogs = extractRelevantLogs(logs, job.name);
+      allLogs.push(`\n=== Job: ${job.name} ===\n${relevantLogs}`);
+    } catch (error) {
+      core.warning(`Failed to download logs for job ${job.name}: ${error}`);
+    }
   }
+
+  if (allLogs.length === 0) {
+    return 'Failed to download logs from any failed jobs';
+  }
+
+  return allLogs.join('\n\n');
 }
 
 function extractRelevantLogs(fullLogs: string, jobName: string): string {
