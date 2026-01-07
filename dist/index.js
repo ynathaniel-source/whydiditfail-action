@@ -32556,17 +32556,16 @@ function formatMultiJobSummary(result, ctx) {
     output += "### 📋 Individual Job Results\n\n";
     jobs.forEach((job) => {
         output += `<details>\n`;
-        output += `<summary><strong>Job: ${job.jobName}</strong>`;
         if (job.isCascadingFailure) {
-            output += ` (⛓️ Cascading Failure)</summary>\n\n`;
+            output += `<summary><strong>Job: ${job.jobName}</strong> (⛓️ Cascading Failure)</summary>\n\n`;
             output += `> This job failed because a previous required job failed.\n\n`;
         }
         else if (job.skipped) {
-            output += ` (⏭️ Skipped)</summary>\n\n`;
+            output += `<summary><strong>Job: ${job.jobName}</strong> (⏭️ Skipped)</summary>\n\n`;
             output += `**Reason:** ${job.skipReason || 'Unknown'}\n\n`;
         }
         else if (!job.success) {
-            output += ` (❌ Analysis Failed)</summary>\n\n`;
+            output += `<summary><strong>Job: ${job.jobName}</strong> (❌ Analysis Failed)</summary>\n\n`;
             output += `**Error:** ${job.error || 'Unknown error'}\n\n`;
         }
         else {
@@ -32575,7 +32574,10 @@ function formatMultiJobSummary(result, ctx) {
             const confidenceEmoji = confidence >= 0.85 ? "✅" : confidence >= 0.65 ? "⚠️" : "❌";
             const category = job.category || "unknown";
             const timeToFix = job.estimated_time_to_fix || "unknown";
-            output += ` (${confidencePercent}% confidence)</summary>\n\n`;
+            const rootCauseSummary = job.rootCause ? job.rootCause.split('\n')[0].substring(0, 80) : "Unknown";
+            const fixCount = Array.isArray(job.fixes) ? job.fixes.length : 0;
+            output += `<summary><strong>Job: ${job.jobName}</strong> · ${confidenceEmoji} ${confidencePercent}% · \`${category}\` · ${timeToFix}<br/>`;
+            output += `<em>${rootCauseSummary}${rootCauseSummary.length >= 80 ? '...' : ''}</em> · ${fixCount} fix${fixCount !== 1 ? 'es' : ''}</summary>\n\n`;
             output += `${confidenceEmoji} **Confidence:** ${confidencePercent}% · **Category:** \`${category}\` · **ETA:** ${timeToFix}\n\n`;
             output += "---\n\n";
             output += "### ❌ Root Cause\n";
