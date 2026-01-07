@@ -392,18 +392,105 @@ function formatMultiJobSummary(result: any, ctx?: RenderContext): string {
     } else {
       const confidence = job.confidence || 0;
       const confidencePercent = Math.round(confidence * 100);
+      const confidenceEmoji = confidence >= 0.85 ? "✅" : confidence >= 0.65 ? "⚠️" : "❌";
+      const category = job.category || "unknown";
+      const timeToFix = job.estimated_time_to_fix || "unknown";
+      
       output += ` (${confidencePercent}% confidence)</summary>\n\n`;
       
-      if (job.rootCause) {
-        output += `**Root Cause:** ${renderMd(job.rootCause)}\n\n`;
+      output += `${confidenceEmoji} **Confidence:** ${confidencePercent}% · **Category:** \`${category}\` · **ETA:** ${timeToFix}\n\n`;
+      output += "---\n\n";
+      
+      output += "### ❌ Root Cause\n";
+      const rootCause = renderMd(job.rootCause || "Unknown");
+      const rootCauseLines = rootCause.split('\n');
+      if (rootCauseLines.length > 0) {
+        output += `**${rootCauseLines[0]}**\n\n`;
+        if (rootCauseLines.length > 1) {
+          output += rootCauseLines.slice(1).join('\n') + "\n\n";
+        }
+      } else {
+        output += "**Unknown**\n\n";
       }
       
-      if (job.fixes && job.fixes.length > 0) {
-        output += "**Fixes:**\n";
-        job.fixes.forEach((fix: string, i: number) => {
+      output += "---\n\n";
+      
+      const locs = Array.isArray(job.locations) ? job.locations : null;
+      if (locs && locs.length > 0) {
+        output += "<details>\n";
+        output += `  <summary><strong>📍 Affected files (${locs.length})</strong></summary>\n\n`;
+        output += `${renderJobWhere(job, ctx)}\n\n`;
+        output += "</details>\n\n";
+        output += "---\n\n";
+      } else if (job.where) {
+        output += "<details>\n";
+        output += "  <summary><strong>📍 Affected files</strong></summary>\n\n";
+        output += `${renderMd(job.where)}\n\n`;
+        output += "</details>\n\n";
+        output += "---\n\n";
+      }
+      
+      output += "### ✅ Recommended Fixes\n";
+      const fixes = Array.isArray(job.fixes) ? job.fixes : ["No fix suggestions"];
+      
+      if (fixes.length > 0 && typeof fixes[0] === 'object' && 'description' in fixes[0]) {
+        fixes.forEach((fix: any, i: number) => {
+          output += `${i + 1}. ${renderMdInline(fix.description ?? fix)}\n`;
+        });
+      } else {
+        fixes.forEach((fix: string, i: number) => {
           output += `${i + 1}. ${renderMdInline(fix)}\n`;
         });
-        output += "\n";
+      }
+      output += "\n";
+      
+      output += "---\n\n";
+      
+      const fixSuggestions = Array.isArray(job.fix_suggestions) ? job.fix_suggestions : [];
+      if (fixSuggestions.length > 0) {
+        output += "### 🔧 Code Fix Suggestions\n\n";
+        
+        fixSuggestions.forEach((fix: any, i: number) => {
+          const fixConfidencePercent = Math.round((fix.confidence ?? 0) * 100);
+          output += `**${i + 1}. ${fix.title || 'Suggested fix'}** (${fixConfidencePercent}% confidence)\n\n`;
+          
+          if (fix.rationale) {
+            output += `${renderMd(fix.rationale)}\n\n`;
+          }
+          
+          output += `**File:** \`${fix.path}\` (lines ${fix.line_start}-${fix.line_end})\n\n`;
+          
+          output += "<details>\n";
+          output += "  <summary>View suggested code</summary>\n\n";
+          output += "```\n";
+          output += fix.replacement;
+          output += "\n```\n\n";
+          output += "</details>\n\n";
+        });
+        
+        output += "---\n\n";
+      }
+      
+      const snippets = Array.isArray(job.snippets) ? job.snippets : [];
+      if (snippets.length > 0) {
+        output += "<details>\n";
+        output += "  <summary><strong>🧩 Error Evidence</strong></summary>\n\n";
+        for (const snip of snippets) {
+          if (snip.title) {
+            output += `**${renderMdInline(snip.title)}**\n\n`;
+          }
+          output += "```" + (snip.language ?? "txt") + "\n";
+          output += (snip.code ?? "").trimEnd() + "\n";
+          output += "```\n\n";
+        }
+        output += "</details>\n\n";
+      }
+      
+      if (job.do_not_try && job.do_not_try !== "N/A") {
+        output += "<details>\n";
+        output += "  <summary><strong>🚫 What NOT to try</strong></summary>\n\n";
+        output += `${renderMd(job.do_not_try)}\n\n`;
+        output += "</details>\n\n";
       }
     }
     
@@ -414,4 +501,17 @@ function formatMultiJobSummary(result: any, ctx?: RenderContext): string {
   output += '<sub>Powered by <a href="https://github.com/marketplace/actions/whydiditfail">WhyDidItFail</a></sub>\n';
 
   return output;
+}
+
+function renderJobWhere(job: any, ctx?: RenderContext): string {
+  const locs = Array.isArray(job.locations) ? job.locations : null;
+  if (locs && locs.length > 0 && ctx) {
+    const links = locs
+      .map((loc: any) => formatLocationLink(loc, ctx))
+      .filter((link: string) => link.length > 0);
+    if (links.length > 0) {
+      return links.join("\n");
+    }
+  }
+  return renderMd(job.where ?? "Unknown");
 }
