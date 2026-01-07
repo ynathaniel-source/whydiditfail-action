@@ -36,6 +36,12 @@ jobs:
             exit 1
           fi
           echo "✅ dist/ is up to date"
+      
+      - name: Explain failure
+        if: failure()
+        uses: ./
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
 
   lint:
     runs-on: ubuntu-latest
@@ -54,3 +60,9 @@ jobs:
       
       - name: Check TypeScript
         run: npx tsc --noEmit
+      
+      - name: Explain failure
+        if: failure()
+        uses: ./
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
