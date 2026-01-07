@@ -350,10 +350,7 @@ function formatMultiJobSummary(result: any, ctx?: RenderContext): string {
   
   // Usage info at the top
   const successfulAnalyses = jobs.filter((j: any) => j.success && !j.skipped && !j.isCascadingFailure).length;
-  output += `🔢 **Analyses Used:** ${successfulAnalyses}`;
-  if (summary.totalJobsAnalyzed) {
-    output += ` of ${summary.totalJobsAnalyzed} jobs`;
-  }
+  output += `🔢 **Analyses Used:** ${successfulAnalyses} this run`;
   if (summary.jobsSkippedCascading > 0) {
     output += ` (${summary.jobsSkippedCascading} skipped as cascading failures)`;
   }
@@ -382,8 +379,12 @@ function formatMultiJobSummary(result: any, ctx?: RenderContext): string {
         if (locs.length > 0 && ctx) {
           const firstLoc = locs[0];
           const repoUrl = `${ctx.serverUrl}/${ctx.repository}`;
-          const fileLink = `${repoUrl}/blob/${ctx.sha || 'main'}/${firstLoc.path}${firstLoc.line ? `#L${firstLoc.line}` : ''}`;
-          output += ` · **Affected File:** [${firstLoc.path}](${fileLink})`;
+          const lineStart = firstLoc.line_start || firstLoc.line;
+          const lineEnd = firstLoc.line_end;
+          const anchor = lineStart ? (lineEnd && lineEnd > lineStart ? `#L${lineStart}-L${lineEnd}` : `#L${lineStart}`) : '';
+          const fileLink = `${repoUrl}/blob/${ctx.sha || 'main'}/${firstLoc.path}${anchor}`;
+          const displayPath = lineStart ? `${firstLoc.path}:${lineStart}` : firstLoc.path;
+          output += ` · **Affected File:** [${displayPath}](${fileLink})`;
         } else if (locs.length > 0) {
           output += ` · **Affected File:** \`${locs[0].path}\``;
         }
@@ -434,9 +435,6 @@ function formatMultiJobSummary(result: any, ctx?: RenderContext): string {
       
       output += `<summary><strong>Job: ${job.jobName}</strong> · ${confidenceEmoji} ${confidencePercent}% · \`${category}\` · ${timeToFix}<br/>`;
       output += `<em>${rootCauseSummary}${rootCauseSummary.length >= 80 ? '...' : ''}</em> · ${fixCount} fix${fixCount !== 1 ? 'es' : ''}</summary>\n\n`;
-      
-      output += `${confidenceEmoji} **Confidence:** ${confidencePercent}% · **Category:** \`${category}\` · **ETA:** ${timeToFix}\n\n`;
-      output += "---\n\n";
       
       output += "### ❌ Root Cause\n";
       const rootCause = renderMd(job.rootCause || "Unknown");
