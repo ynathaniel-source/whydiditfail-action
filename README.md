@@ -16,30 +16,43 @@ No API keys. No access to your code. Only failure logs are analyzed.
 
 ## 🚀 Quick Start
 
-Just add this to your workflow - **no setup required**:
+Add a failure analysis job to your workflow - **no setup required**:
 
 ```yaml
 name: CI
 on: [push, pull_request]
 
 jobs:
-  build:
+  test:
     runs-on: ubuntu-latest
-    permissions:  # Add this for inline fix suggestions
-      contents: read
-      pull-requests: write
     steps:
       - uses: actions/checkout@v4
-      
       - name: Run tests
         run: npm test
-      
-      - name: Explain failure  # Add this step
-        if: failure()  # Run only when previous steps fail
-        uses: ynathaniel-source/whydiditfail-action@v1
+  
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run linter
+        run: npm run lint
+  
+  # Add this job to analyze failures
+  analyze-failures:
+    runs-on: ubuntu-latest
+    needs: [test, lint]  # List all jobs you want to monitor
+    if: failure()        # Only runs when a job fails
+    permissions:
+      contents: read
+      pull-requests: write  # Optional: enables inline fix suggestions
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ynathaniel-source/whydiditfail-action@v1
 ```
 
 That's it! No API keys, no secrets, no deployment needed.
+
+**How it works:** When any job in `needs` fails, the `analyze-failures` job runs and analyzes all failures together in one comprehensive report.
 
 > **Note:** The `pull-requests: write` permission enables inline fix suggestions on PRs. Without it, the action will still work and post summaries, but won't post PR review comments.
 
@@ -111,13 +124,17 @@ Your code and data are safe:
 Customize the behavior with optional inputs:
 
 ```yaml
-- name: Explain failure with custom settings
+analyze-failures:
+  needs: [test, lint]
   if: failure()
-  uses: ynathaniel-source/whydiditfail-action@v1
-  with:
-    mode: summary              # or 'comment' for PR comments
-    max_log_kb: 500           # increase log size limit
-    redact: true              # redact secrets (recommended)
+  runs-on: ubuntu-latest
+  steps:
+    - uses: actions/checkout@v4
+    - uses: ynathaniel-source/whydiditfail-action@v1
+      with:
+        mode: summary              # or 'comment' for PR comments
+        max_log_kb: 500           # increase log size limit
+        redact: true              # redact secrets (recommended)
 ```
 
 ### All Available Inputs
@@ -151,11 +168,15 @@ WhyDidItFail can automatically post code fix suggestions for common errors:
 If you prefer not to have fix suggestions posted automatically:
 
 ```yaml
-- name: Explain failure
+analyze-failures:
+  needs: [test, lint]
   if: failure()
-  uses: ynathaniel-source/whydiditfail-action@v1
-  with:
-    suggest_fixes: false  # Disable inline fix suggestions
+  runs-on: ubuntu-latest
+  steps:
+    - uses: actions/checkout@v4
+    - uses: ynathaniel-source/whydiditfail-action@v1
+      with:
+        suggest_fixes: false  # Disable inline fix suggestions
 ```
 
 ### Required Permissions (Optional)
@@ -163,14 +184,16 @@ If you prefer not to have fix suggestions posted automatically:
 To enable inline fix suggestions on pull requests, add `pull-requests: write` permission:
 
 ```yaml
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: write  # Optional: enables inline fix suggestions on PRs
-    steps:
-      # ... your steps
+analyze-failures:
+  runs-on: ubuntu-latest
+  needs: [test, lint]
+  if: failure()
+  permissions:
+    contents: read
+    pull-requests: write  # Optional: enables inline fix suggestions on PRs
+  steps:
+    - uses: actions/checkout@v4
+    - uses: ynathaniel-source/whydiditfail-action@v1
 ```
 
 **Note:** Without this permission, the action will still work and post summaries, but won't be able to post inline PR review comments. Commit comments (for pushes) don't require this permission.
@@ -192,11 +215,15 @@ To keep usage predictable and safe, WhyDidItFail includes built-in limits. These
 Want to use your own service? Just provide the URL:
 
 ```yaml
-- name: Explain failure
+analyze-failures:
+  needs: [test, lint]
   if: failure()
-  uses: ynathaniel-source/whydiditfail-action@v1
-  with:
-    service_url: ${{ secrets.WHYDIDITFAIL_SERVICE_URL }}
+  runs-on: ubuntu-latest
+  steps:
+    - uses: actions/checkout@v4
+    - uses: ynathaniel-source/whydiditfail-action@v1
+      with:
+        service_url: ${{ secrets.WHYDIDITFAIL_SERVICE_URL }}
 ```
 
 ## 🛠️ Development
