@@ -32085,7 +32085,6 @@ function formatSummary(explanation, ctx) {
     const e = explanation ?? {};
     if (e.skipped) {
         let summary = "# ⏭️ Analysis Skipped\n\n";
-        summary += "> ℹ️ **WhyDidItFail skipped this analysis to save costs.**\n\n";
         if (e.code === "LOW_CONFIDENCE") {
             summary += "### 📊 Low Confidence Detection\n\n";
             if (e.confidenceScore !== undefined) {
@@ -32117,9 +32116,6 @@ function formatSummary(explanation, ctx) {
                 summary += "\n";
             }
         }
-        summary += "---\n\n";
-        summary += "### ✅ No Costs Incurred\n\n";
-        summary += "This analysis was skipped before calling the AI service, so no API tokens were consumed.\n\n";
         summary += "---\n\n";
         summary += '<sub>Powered by <a href="https://github.com/marketplace/actions/whydiditfail">WhyDidItFail</a></sub>\n';
         return summary;
