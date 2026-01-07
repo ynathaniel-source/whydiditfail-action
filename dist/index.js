@@ -31731,7 +31731,7 @@ var external_node_fs_default = /*#__PURE__*/__nccwpck_require__.n(external_node_
 
 
 async function fetchJobLogsBestEffort(maxLogKb, token) {
-    const path = process.env.WHYDIDITFAIL_LOG_PATH;
+    const path = process.env.WHYDIDITFAIL_LOG_PATH || (process.env.RUNNER_TEMP ? `${process.env.RUNNER_TEMP}/whydiditfail.log` : undefined);
     if (path && external_node_fs_default().existsSync(path)) {
         core.info(`Using logs from file: ${path}`);
         const buf = external_node_fs_default().readFileSync(path);
@@ -31740,7 +31740,10 @@ async function fetchJobLogsBestEffort(maxLogKb, token) {
     try {
         core.info("Fetching logs from GitHub API");
         const logs = await fetchLogsFromGitHub(token);
-        return truncate(logs, maxLogKb * 1024);
+        core.info(`Fetched ${logs.length} characters of logs`);
+        const truncated = truncate(logs, maxLogKb * 1024);
+        core.info(`After truncation: ${truncated.length} characters`);
+        return truncated;
     }
     catch (error) {
         core.warning(`Failed to fetch logs from GitHub API: ${error}`);
@@ -31791,6 +31794,7 @@ function extractRelevantLogs(fullLogs, jobName) {
     const seenLines = new Set();
     let inFailedStep = false;
     let errorContext = 0;
+    core.info(`Extracting relevant logs from ${lines.length} total lines`);
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         if (isStepBoundary(line)) {
@@ -31800,6 +31804,7 @@ function extractRelevantLogs(fullLogs, jobName) {
             }
             if (containsErrorIndicator(line)) {
                 inFailedStep = true;
+                core.info(`Found failed step at line ${i}: ${line.substring(0, 100)}`);
                 if (!seenLines.has(line)) {
                     seenLines.add(line);
                     relevantLines.push(line);
@@ -31834,7 +31839,9 @@ function extractRelevantLogs(fullLogs, jobName) {
             errorContext--;
         }
     }
+    core.info(`Extracted ${relevantLines.length} relevant lines`);
     if (relevantLines.length === 0) {
+        core.info("No relevant lines found, returning last 100 lines");
         const lastLines = lines.slice(-100);
         return lastLines.join("\n");
     }
@@ -32711,12 +32718,12 @@ function parseMaxLogKb(input, defaultValue = 400) {
 }
 async function run() {
     try {
-        const serviceUrl = core.getInput("service_url") || "https://api.whydiditfail.com";
+        const serviceUrl = core.getInput("service_url") || "https://wlsuvpvhv2.execute-api.us-east-1.amazonaws.com";
         const githubToken = core.getInput("github_token") || process.env.GITHUB_TOKEN;
         const maxLogKb = parseMaxLogKb(core.getInput("max_log_kb"));
         const mode = core.getInput("mode") || "summary";
         const suggestFixes = core.getInput("suggest_fixes") !== "false";
-        const cleanupOldComments = core.getInput("cleanup_old_comments") === "true";
+        const cleanupOldComments = core.getInput("cleanup_old_comments") !== "false";
         const logs = await fetchJobLogsBestEffort(maxLogKb, githubToken);
         const payload = {
             repo: github.context.payload.repository?.full_name ?? github.context.repo.owner + "/" + github.context.repo.repo,

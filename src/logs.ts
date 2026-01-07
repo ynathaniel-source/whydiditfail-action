@@ -13,7 +13,10 @@ export async function fetchJobLogsBestEffort(maxLogKb: number, token?: string): 
   try {
     core.info("Fetching logs from GitHub API");
     const logs = await fetchLogsFromGitHub(token);
-    return truncate(logs, maxLogKb * 1024);
+    core.info(`Fetched ${logs.length} characters of logs`);
+    const truncated = truncate(logs, maxLogKb * 1024);
+    core.info(`After truncation: ${truncated.length} characters`);
+    return truncated;
   } catch (error) {
     core.warning(`Failed to fetch logs from GitHub API: ${error}`);
     return truncate(
@@ -78,6 +81,8 @@ function extractRelevantLogs(fullLogs: string, jobName: string): string {
   let inFailedStep = false;
   let errorContext = 0;
 
+  core.info(`Extracting relevant logs from ${lines.length} total lines`);
+
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
 
@@ -89,6 +94,7 @@ function extractRelevantLogs(fullLogs: string, jobName: string): string {
       
       if (containsErrorIndicator(line)) {
         inFailedStep = true;
+        core.info(`Found failed step at line ${i}: ${line.substring(0, 100)}`);
         if (!seenLines.has(line)) {
           seenLines.add(line);
           relevantLines.push(line);
@@ -126,7 +132,10 @@ function extractRelevantLogs(fullLogs: string, jobName: string): string {
     }
   }
 
+  core.info(`Extracted ${relevantLines.length} relevant lines`);
+
   if (relevantLines.length === 0) {
+    core.info("No relevant lines found, returning last 100 lines");
     const lastLines = lines.slice(-100);
     return lastLines.join("\n");
   }
