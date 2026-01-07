@@ -9,6 +9,10 @@ export interface RenderContext {
 export function formatSummary(explanation: any, ctx?: RenderContext): string {
   const e = explanation ?? {};
   
+  if (e.summary && e.jobs && Array.isArray(e.jobs)) {
+    return formatMultiJobSummary(e, ctx);
+  }
+  
   if (e.skipped) {
     let summary = "# ⏭️ Analysis Skipped\n\n";
     
@@ -335,4 +339,79 @@ function formatLocationLink(loc: any, ctx: RenderContext): string {
   }
 
   return `- [${labelParts.join(": ")}](${url})`;
+}
+
+function formatMultiJobSummary(result: any, ctx?: RenderContext): string {
+  const summary = result.summary || {};
+  const jobs = result.jobs || [];
+  const rootCauses = result.rootCauses || [];
+
+  let output = "## 🔎 Multi-Job Failure Analysis\n\n";
+  
+  output += `📊 **Summary:** ${summary.totalJobsAnalyzed} jobs analyzed`;
+  if (summary.jobsSkippedCascading > 0) {
+    output += `, ${summary.jobsSkippedCascading} skipped (cascading failures)`;
+  }
+  output += `\n\n`;
+
+  if (rootCauses.length > 0) {
+    output += `🎯 **Root Causes Found:** ${rootCauses.length}\n\n`;
+    output += "---\n\n";
+
+    rootCauses.forEach((rc: any, i: number) => {
+      output += `### ${i + 1}. ${rc.description}\n\n`;
+      output += `**Affected Jobs:** ${rc.affectedJobs.join(', ')}\n\n`;
+      
+      if (rc.fixes && rc.fixes.length > 0) {
+        output += "**Recommended Fixes:**\n";
+        rc.fixes.forEach((fix: string, j: number) => {
+          output += `${j + 1}. ${renderMdInline(fix)}\n`;
+        });
+        output += "\n";
+      }
+      
+      output += "---\n\n";
+    });
+  }
+
+  output += "### 📋 Individual Job Results\n\n";
+
+  jobs.forEach((job: any) => {
+    output += `<details>\n`;
+    output += `<summary><strong>Job: ${job.jobName}</strong>`;
+    
+    if (job.isCascadingFailure) {
+      output += ` (⛓️ Cascading Failure)</summary>\n\n`;
+      output += `> This job failed because a previous required job failed.\n\n`;
+    } else if (job.skipped) {
+      output += ` (⏭️ Skipped)</summary>\n\n`;
+      output += `**Reason:** ${job.skipReason || 'Unknown'}\n\n`;
+    } else if (!job.success) {
+      output += ` (❌ Analysis Failed)</summary>\n\n`;
+      output += `**Error:** ${job.error || 'Unknown error'}\n\n`;
+    } else {
+      const confidence = job.confidence || 0;
+      const confidencePercent = Math.round(confidence * 100);
+      output += ` (${confidencePercent}% confidence)</summary>\n\n`;
+      
+      if (job.rootCause) {
+        output += `**Root Cause:** ${renderMd(job.rootCause)}\n\n`;
+      }
+      
+      if (job.fixes && job.fixes.length > 0) {
+        output += "**Fixes:**\n";
+        job.fixes.forEach((fix: string, i: number) => {
+          output += `${i + 1}. ${renderMdInline(fix)}\n`;
+        });
+        output += "\n";
+      }
+    }
+    
+    output += `</details>\n\n`;
+  });
+
+  output += "---\n\n";
+  output += '<sub>Powered by <a href="https://github.com/marketplace/actions/whydiditfail">WhyDidItFail</a></sub>\n';
+
+  return output;
 }

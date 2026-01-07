@@ -32079,10 +32079,176 @@ function truncate(s, maxBytes) {
     return b.subarray(start).toString("utf8");
 }
 
+;// CONCATENATED MODULE: ./src/multi-job-logs.ts
+
+
+const MAX_JOBS = parseInt(process.env.ACTION_MAX_JOBS || '10', 10);
+const MAX_LOG_PER_JOB_KB = parseInt(process.env.ACTION_MAX_LOG_PER_JOB_KB || '64', 10);
+async function fetchMultipleFailedJobs(token) {
+    const githubToken = token || process.env.GITHUB_TOKEN;
+    if (!githubToken) {
+        throw new Error("GITHUB_TOKEN is required to fetch logs");
+    }
+    const context = github.context;
+    const octokit = github.getOctokit(githubToken);
+    const runId = context.runId;
+    const { owner, repo } = context.repo;
+    const currentJobName = context.job;
+    core.info(`Fetching jobs for run ${runId} in ${owner}/${repo}`);
+    const { data: jobs } = await octokit.rest.actions.listJobsForWorkflowRun({
+        owner,
+        repo,
+        run_id: runId,
+    });
+    const failedJobs = jobs.jobs.filter((job) => job.conclusion === 'failure' &&
+        job.name !== currentJobName &&
+        job.status === 'completed').slice(0, MAX_JOBS);
+    if (failedJobs.length === 0) {
+        core.info('No completed failed jobs found to analyze');
+        return [];
+    }
+    core.info(`Found ${failedJobs.length} failed jobs to analyze`);
+    const results = [];
+    for (const job of failedJobs) {
+        core.info(`Downloading logs for failed job: ${job.name} (${job.id})`);
+        try {
+            const logResponse = await octokit.rest.actions.downloadJobLogsForWorkflowRun({
+                owner,
+                repo,
+                job_id: job.id,
+            });
+            const fullLogs = typeof logResponse.data === 'string'
+                ? logResponse.data
+                : Buffer.from(logResponse.data).toString('utf-8');
+            const relevantLogs = multi_job_logs_extractRelevantLogs(fullLogs, job.name);
+            const truncatedLogs = truncateToByteLimit(relevantLogs, MAX_LOG_PER_JOB_KB * 1024);
+            results.push({
+                name: job.name,
+                logs: truncatedLogs,
+                conclusion: job.conclusion || 'failure'
+            });
+            core.info(`Extracted ${truncatedLogs.length} bytes for job ${job.name}`);
+        }
+        catch (error) {
+            core.warning(`Failed to download logs for job ${job.name}: ${error}`);
+        }
+    }
+    return results;
+}
+function multi_job_logs_extractRelevantLogs(fullLogs, jobName) {
+    const lines = fullLogs.split("\n");
+    const relevantLines = [];
+    const seenLines = new Set();
+    let inFailedStep = false;
+    let errorContext = 0;
+    core.info(`Extracting relevant logs from ${lines.length} total lines for job ${jobName}`);
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (multi_job_logs_isStepBoundary(line)) {
+            if (inFailedStep && errorContext > 0) {
+                inFailedStep = false;
+                errorContext = 0;
+            }
+            if (multi_job_logs_containsErrorIndicator(line)) {
+                inFailedStep = true;
+                core.info(`Found failed step at line ${i}: ${line.substring(0, 100)}`);
+                if (!seenLines.has(line)) {
+                    seenLines.add(line);
+                    relevantLines.push(line);
+                }
+                for (let j = Math.max(0, i - 10); j < i; j++) {
+                    if (!seenLines.has(lines[j])) {
+                        seenLines.add(lines[j]);
+                        relevantLines.push(lines[j]);
+                    }
+                }
+                continue;
+            }
+        }
+        if (inFailedStep) {
+            if (!seenLines.has(line)) {
+                seenLines.add(line);
+                relevantLines.push(line);
+            }
+            if (multi_job_logs_containsErrorIndicator(line)) {
+                errorContext = 30;
+            }
+        }
+        else if (multi_job_logs_containsErrorIndicator(line)) {
+            for (let j = Math.max(0, i - 10); j < Math.min(lines.length, i + 30); j++) {
+                if (!seenLines.has(lines[j])) {
+                    seenLines.add(lines[j]);
+                    relevantLines.push(lines[j]);
+                }
+            }
+        }
+        if (errorContext > 0) {
+            errorContext--;
+        }
+    }
+    core.info(`Extracted ${relevantLines.length} relevant lines for job ${jobName}`);
+    if (relevantLines.length === 0) {
+        core.info("No relevant lines found, returning last 100 lines");
+        const lastLines = lines.slice(-100);
+        return lastLines.join("\n");
+    }
+    return relevantLines.join("\n");
+}
+function multi_job_logs_isStepBoundary(line) {
+    return /^##\[group\]|^##\[endgroup\]|^Run |^Post |^Set up job|^Complete job/.test(line);
+}
+function multi_job_logs_containsErrorIndicator(line) {
+    const errorPatterns = [
+        /error:/i,
+        /failed/i,
+        /ERR!/i,
+        /\[error\]/i,
+        /exception/i,
+        /fatal/i,
+        /✕/,
+        /❌/,
+        /exit code [1-9]/i,
+        /Process completed with exit code [1-9]/i,
+        /ENOENT/,
+        /EACCES/,
+        /ECONNREFUSED/,
+        /npm ERR!/,
+        /yarn error/,
+        /pip install failed/i,
+        /compilation failed/i,
+        /test.*failed/i,
+        /cannot find/i,
+        /undefined/i,
+        /null is not/i,
+        /permission denied/i,
+        /timeout/i,
+        /killed/i,
+        /SIGTERM/,
+        /SIGKILL/,
+    ];
+    return errorPatterns.some((pattern) => pattern.test(line));
+}
+function truncateToByteLimit(text, maxBytes) {
+    const buffer = Buffer.from(text, 'utf8');
+    if (buffer.length <= maxBytes) {
+        return text;
+    }
+    core.warning(`Truncating logs from ${buffer.length} to ${maxBytes} bytes`);
+    const keepStart = Math.floor(maxBytes * 0.4);
+    const keepEnd = Math.floor(maxBytes * 0.4);
+    const startBuffer = buffer.subarray(0, keepStart);
+    const endBuffer = buffer.subarray(buffer.length - keepEnd);
+    const truncationMarker = Buffer.from(`\n\n... [Truncated to fit ${maxBytes} byte limit] ...\n\n`, 'utf8');
+    return Buffer.concat([startBuffer, truncationMarker, endBuffer]).toString('utf8');
+}
+
 ;// CONCATENATED MODULE: ./src/summary.ts
 
 function formatSummary(explanation, ctx) {
     const e = explanation ?? {};
+    if (e.summary && e.jobs && Array.isArray(e.jobs)) {
+        return formatMultiJobSummary(e, ctx);
+    }
     if (e.skipped) {
         let summary = "# ⏭️ Analysis Skipped\n\n";
         if (e.code === "LOW_CONFIDENCE") {
@@ -32361,6 +32527,69 @@ function formatLocationLink(loc, ctx) {
     }
     return `- [${labelParts.join(": ")}](${url})`;
 }
+function formatMultiJobSummary(result, ctx) {
+    const summary = result.summary || {};
+    const jobs = result.jobs || [];
+    const rootCauses = result.rootCauses || [];
+    let output = "## 🔎 Multi-Job Failure Analysis\n\n";
+    output += `📊 **Summary:** ${summary.totalJobsAnalyzed} jobs analyzed`;
+    if (summary.jobsSkippedCascading > 0) {
+        output += `, ${summary.jobsSkippedCascading} skipped (cascading failures)`;
+    }
+    output += `\n\n`;
+    if (rootCauses.length > 0) {
+        output += `🎯 **Root Causes Found:** ${rootCauses.length}\n\n`;
+        output += "---\n\n";
+        rootCauses.forEach((rc, i) => {
+            output += `### ${i + 1}. ${rc.description}\n\n`;
+            output += `**Affected Jobs:** ${rc.affectedJobs.join(', ')}\n\n`;
+            if (rc.fixes && rc.fixes.length > 0) {
+                output += "**Recommended Fixes:**\n";
+                rc.fixes.forEach((fix, j) => {
+                    output += `${j + 1}. ${renderMdInline(fix)}\n`;
+                });
+                output += "\n";
+            }
+            output += "---\n\n";
+        });
+    }
+    output += "### 📋 Individual Job Results\n\n";
+    jobs.forEach((job) => {
+        output += `<details>\n`;
+        output += `<summary><strong>Job: ${job.jobName}</strong>`;
+        if (job.isCascadingFailure) {
+            output += ` (⛓️ Cascading Failure)</summary>\n\n`;
+            output += `> This job failed because a previous required job failed.\n\n`;
+        }
+        else if (job.skipped) {
+            output += ` (⏭️ Skipped)</summary>\n\n`;
+            output += `**Reason:** ${job.skipReason || 'Unknown'}\n\n`;
+        }
+        else if (!job.success) {
+            output += ` (❌ Analysis Failed)</summary>\n\n`;
+            output += `**Error:** ${job.error || 'Unknown error'}\n\n`;
+        }
+        else {
+            const confidence = job.confidence || 0;
+            const confidencePercent = Math.round(confidence * 100);
+            output += ` (${confidencePercent}% confidence)</summary>\n\n`;
+            if (job.rootCause) {
+                output += `**Root Cause:** ${renderMd(job.rootCause)}\n\n`;
+            }
+            if (job.fixes && job.fixes.length > 0) {
+                output += "**Fixes:**\n";
+                job.fixes.forEach((fix, i) => {
+                    output += `${i + 1}. ${renderMdInline(fix)}\n`;
+                });
+                output += "\n";
+            }
+        }
+        output += `</details>\n\n`;
+    });
+    output += "---\n\n";
+    output += '<sub>Powered by <a href="https://github.com/marketplace/actions/whydiditfail">WhyDidItFail</a></sub>\n';
+    return output;
+}
 
 ;// CONCATENATED MODULE: ./src/client.ts
 async function sleep(ms) {
@@ -32475,8 +32704,8 @@ async function explainFailure(serviceUrl, payload, githubToken) {
 
 ;// CONCATENATED MODULE: ./src/logLimits.ts
 
-const MAX_LOG_BYTES = (/* unused pure expression or super */ null && (400 * 1024));
-const MAX_REQUEST_BYTES = 450 * 1024;
+const MAX_LOG_BYTES = parseInt(process.env.ACTION_MAX_LOG_KB || '64', 10) * 1024;
+const MAX_REQUEST_BYTES = parseInt(process.env.ACTION_MAX_REQUEST_KB || '128', 10) * 1024;
 function byteLengthUtf8(s) {
     return Buffer.byteLength(s, "utf8");
 }
@@ -37107,7 +37336,8 @@ async function getGitContext(githubToken) {
 
 
 
-function parseMaxLogKb(input, defaultValue = 400) {
+
+function parseMaxLogKb(input, defaultValue = 64) {
     if (!input)
         return defaultValue;
     const parsed = Number(input);
@@ -37124,15 +37354,15 @@ function parseMaxLogKb(input, defaultValue = 400) {
 }
 async function run() {
     try {
-        const serviceUrl = core.getInput("service_url") || "https://wlsuvpvhv2.execute-api.us-east-1.amazonaws.com";
+        const serviceUrl = core.getInput("service_url") || "https://4tt0zovbna.execute-api.us-east-1.amazonaws.com";
         const githubToken = core.getInput("github_token") || process.env.GITHUB_TOKEN;
         const maxLogKb = parseMaxLogKb(core.getInput("max_log_kb"));
         const mode = core.getInput("mode") || "summary";
         const suggestFixes = core.getInput("suggest_fixes") !== "false";
         const cleanupOldComments = core.getInput("cleanup_old_comments") !== "false";
-        const logs = await fetchJobLogsBestEffort(maxLogKb, githubToken);
+        const useMultiJob = core.getInput("multi_job") !== "false";
         const gitContext = await getGitContext(githubToken || "");
-        const payload = {
+        let payload = {
             repo: github.context.payload.repository?.full_name ?? github.context.repo.owner + "/" + github.context.repo.repo,
             run_id: github.context.runId,
             run_number: github.context.runNumber,
@@ -37144,7 +37374,6 @@ async function run() {
             sha: github.context.sha,
             runner_os: process.env.RUNNER_OS ?? "unknown",
             failed_step: "unknown",
-            log_excerpt: logs,
             base_sha: gitContext.base_sha,
             modified_files: gitContext.modified_files,
             commit_messages: gitContext.commit_messages,
@@ -37153,6 +37382,21 @@ async function run() {
             dependencies_changed: gitContext.dependencies_changed,
             ci_config_changed: gitContext.ci_config_changed
         };
+        if (useMultiJob) {
+            core.info("Using multi-job analysis mode");
+            const failedJobs = await fetchMultipleFailedJobs(githubToken);
+            if (failedJobs.length === 0) {
+                core.warning("No failed jobs found to analyze");
+                return;
+            }
+            core.info(`Sending ${failedJobs.length} failed jobs for analysis`);
+            payload.failed_jobs = failedJobs;
+        }
+        else {
+            core.info("Using single-job (legacy) analysis mode");
+            const logs = await fetchJobLogsBestEffort(maxLogKb, githubToken);
+            payload.log_excerpt = logs;
+        }
         validatePayloadSize(payload);
         const result = await explainFailure(serviceUrl, payload, githubToken);
         if (mode !== "summary") {
@@ -37160,7 +37404,7 @@ async function run() {
         }
         await postSummary(result);
         if (result.skipped) {
-            core.info(`⏭️ Analysis skipped: ${result.reason || 'Low confidence'} (no costs incurred)`);
+            core.info(`⏭️ Analysis skipped: ${result.reason || 'Low confidence'}`);
             return;
         }
         if (suggestFixes && result.fix_suggestions && result.fix_suggestions.length > 0 && githubToken) {
