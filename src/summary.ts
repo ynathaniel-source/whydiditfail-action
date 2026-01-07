@@ -348,19 +348,48 @@ function formatMultiJobSummary(result: any, ctx?: RenderContext): string {
 
   let output = "## 🔎 Multi-Job Failure Analysis\n\n";
   
-  output += `📊 **Summary:** ${summary.totalJobsAnalyzed} jobs analyzed`;
+  // Usage info at the top
+  const successfulAnalyses = jobs.filter((j: any) => j.success && !j.skipped && !j.isCascadingFailure).length;
+  output += `🔢 **Analyses Used:** ${successfulAnalyses}`;
+  if (summary.totalJobsAnalyzed) {
+    output += ` of ${summary.totalJobsAnalyzed} jobs`;
+  }
   if (summary.jobsSkippedCascading > 0) {
-    output += `, ${summary.jobsSkippedCascading} skipped (cascading failures)`;
+    output += ` (${summary.jobsSkippedCascading} skipped as cascading failures)`;
   }
   output += `\n\n`;
+  output += "---\n\n";
 
   if (rootCauses.length > 0) {
-    output += `🎯 **Root Causes Found:** ${rootCauses.length}\n\n`;
-    output += "---\n\n";
+    output += `## 🎯 Root Causes Found: ${rootCauses.length}\n\n`;
 
     rootCauses.forEach((rc: any, i: number) => {
       output += `### ${i + 1}. ${rc.description}\n\n`;
-      output += `**Affected Jobs:** ${rc.affectedJobs.join(', ')}\n\n`;
+      
+      // Get details from the first affected job
+      const firstJobName = rc.affectedJobs?.[0];
+      const firstJob = jobs.find((j: any) => j.jobName === firstJobName);
+      
+      output += `**Affected Jobs:** ${rc.affectedJobs.join(', ')}`;
+      
+      if (firstJob) {
+        if (firstJob.category) {
+          output += ` · **Category:** \`${firstJob.category}\``;
+        }
+        
+        // Get first affected file
+        const locs = Array.isArray(firstJob.locations) ? firstJob.locations : [];
+        if (locs.length > 0 && ctx) {
+          const firstLoc = locs[0];
+          const repoUrl = `${ctx.serverUrl}/${ctx.repository}`;
+          const fileLink = `${repoUrl}/blob/${ctx.sha || 'main'}/${firstLoc.path}${firstLoc.line ? `#L${firstLoc.line}` : ''}`;
+          output += ` · **Affected File:** [${firstLoc.path}](${fileLink})`;
+        } else if (locs.length > 0) {
+          output += ` · **Affected File:** \`${locs[0].path}\``;
+        }
+      }
+      
+      output += "\n\n";
       
       if (rc.fixes && rc.fixes.length > 0) {
         output += "**Recommended Fixes:**\n";
@@ -374,9 +403,14 @@ function formatMultiJobSummary(result: any, ctx?: RenderContext): string {
     });
   }
 
-  output += "### 📋 Individual Job Results\n\n";
+  output += "## 📋 Individual Job Results\n\n";
+  output += "> Expand each job below for detailed analysis, code suggestions, and error evidence.\n\n";
 
-  jobs.forEach((job: any) => {
+  jobs.forEach((job: any, idx: number) => {
+    if (idx > 0) {
+      output += "---\n\n";
+    }
+    
     output += `<details>\n`;
     
     if (job.isCascadingFailure) {
