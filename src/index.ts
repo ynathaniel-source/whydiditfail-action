@@ -82,6 +82,15 @@ async function run() {
 
     const result = await explainFailure(serviceUrl, payload, githubToken);
 
+    // Debug: Log the first job's locations to see what paths are being returned
+    if (result.jobs && result.jobs.length > 0) {
+      for (const job of result.jobs) {
+        if (job.locations && job.locations.length > 0) {
+          core.info(`DEBUG: Job "${job.jobName}" locations: ${JSON.stringify(job.locations)}`);
+        }
+      }
+    }
+
     if (mode !== "summary") {
       core.warning(`mode=${mode} not implemented in scaffold; using summary`);
     }
