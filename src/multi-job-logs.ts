@@ -88,6 +88,15 @@ function extractRelevantLogs(fullLogs: string, jobName: string): string {
 
   core.info(`Extracting relevant logs from ${lines.length} total lines for job ${jobName}`);
 
+  // Always include first 30 lines (setup commands, cd, etc.)
+  const setupLines = Math.min(30, lines.length);
+  for (let i = 0; i < setupLines; i++) {
+    if (!seenLines.has(lines[i])) {
+      seenLines.add(lines[i]);
+      relevantLines.push(lines[i]);
+    }
+  }
+
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
 
@@ -113,6 +122,12 @@ function extractRelevantLogs(fullLogs: string, jobName: string): string {
         }
         continue;
       }
+    }
+
+    // Always preserve cd commands for working directory tracking
+    if (containsWorkingDirChange(line) && !seenLines.has(line)) {
+      seenLines.add(line);
+      relevantLines.push(line);
     }
 
     if (inFailedStep) {
@@ -183,6 +198,10 @@ function containsErrorIndicator(line: string): boolean {
   ];
 
   return errorPatterns.some((pattern) => pattern.test(line));
+}
+
+function containsWorkingDirChange(line: string): boolean {
+  return /\bcd\s+[^\s]/.test(line);
 }
 
 function truncateToByteLimit(text: string, maxBytes: number): string {

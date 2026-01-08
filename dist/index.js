@@ -32142,6 +32142,14 @@ function multi_job_logs_extractRelevantLogs(fullLogs, jobName) {
     let inFailedStep = false;
     let errorContext = 0;
     core.info(`Extracting relevant logs from ${lines.length} total lines for job ${jobName}`);
+    // Always include first 30 lines (setup commands, cd, etc.)
+    const setupLines = Math.min(30, lines.length);
+    for (let i = 0; i < setupLines; i++) {
+        if (!seenLines.has(lines[i])) {
+            seenLines.add(lines[i]);
+            relevantLines.push(lines[i]);
+        }
+    }
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         if (multi_job_logs_isStepBoundary(line)) {
@@ -32164,6 +32172,11 @@ function multi_job_logs_extractRelevantLogs(fullLogs, jobName) {
                 }
                 continue;
             }
+        }
+        // Always preserve cd commands for working directory tracking
+        if (containsWorkingDirChange(line) && !seenLines.has(line)) {
+            seenLines.add(line);
+            relevantLines.push(line);
         }
         if (inFailedStep) {
             if (!seenLines.has(line)) {
@@ -32227,6 +32240,9 @@ function multi_job_logs_containsErrorIndicator(line) {
         /SIGKILL/,
     ];
     return errorPatterns.some((pattern) => pattern.test(line));
+}
+function containsWorkingDirChange(line) {
+    return /\bcd\s+[^\s]/.test(line);
 }
 function truncateToByteLimit(text, maxBytes) {
     const buffer = Buffer.from(text, 'utf8');
@@ -32841,7 +32857,7 @@ async function explainFailure(serviceUrl, payload, githubToken) {
 ;// CONCATENATED MODULE: ./src/logLimits.ts
 
 const MAX_LOG_BYTES = parseInt(process.env.ACTION_MAX_LOG_KB || '64', 10) * 1024;
-const MAX_REQUEST_BYTES = parseInt(process.env.ACTION_MAX_REQUEST_KB || '128', 10) * 1024;
+const MAX_REQUEST_BYTES = parseInt(process.env.ACTION_MAX_REQUEST_KB || '512', 10) * 1024;
 function byteLengthUtf8(s) {
     return Buffer.byteLength(s, "utf8");
 }

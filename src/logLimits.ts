@@ -1,7 +1,7 @@
 import * as core from "@actions/core";
 
 export const MAX_LOG_BYTES = parseInt(process.env.ACTION_MAX_LOG_KB || '64', 10) * 1024;
-export const MAX_REQUEST_BYTES = parseInt(process.env.ACTION_MAX_REQUEST_KB || '128', 10) * 1024;
+export const MAX_REQUEST_BYTES = parseInt(process.env.ACTION_MAX_REQUEST_KB || '512', 10) * 1024;
 
 export function byteLengthUtf8(s: string): number {
   return Buffer.byteLength(s, "utf8");
