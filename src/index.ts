@@ -7,6 +7,8 @@ import { explainFailure } from "./client.js";
 import { validatePayloadSize } from "./logLimits.js";
 import { postFixSuggestions } from "./review-comments.js";
 import { getGitContext } from "./git-context.js";
+import * as fs from "fs";
+import * as path from "path";
 
 function parseMaxLogKb(input: string | undefined, defaultValue: number = 64): number {
   if (!input) return defaultValue;
@@ -28,6 +30,38 @@ function parseMaxLogKb(input: string | undefined, defaultValue: number = 64): nu
   return parsed;
 }
 
+function getWorkflowContent(): string | undefined {
+  try {
+    const workflowPath = process.env.GITHUB_WORKFLOW_REF;
+    if (!workflowPath) {
+      core.debug("GITHUB_WORKFLOW_REF not available");
+      return undefined;
+    }
+    
+    const match = workflowPath.match(/\.github\/workflows\/([^@]+)/);
+    if (!match) {
+      core.debug(`Could not parse workflow file from: ${workflowPath}`);
+      return undefined;
+    }
+    
+    const workflowFile = match[1];
+    const workspaceDir = process.env.GITHUB_WORKSPACE || process.cwd();
+    const fullPath = path.join(workspaceDir, ".github", "workflows", workflowFile);
+    
+    if (!fs.existsSync(fullPath)) {
+      core.debug(`Workflow file not found: ${fullPath}`);
+      return undefined;
+    }
+    
+    const content = fs.readFileSync(fullPath, "utf-8");
+    core.info(`Read workflow file: ${workflowFile} (${content.length} bytes)`);
+    return content;
+  } catch (error) {
+    core.debug(`Failed to read workflow file: ${error}`);
+    return undefined;
+  }
+}
+
 async function run() {
   try {
     const serviceUrl = core.getInput("service_url") || "https://4tt0zovbna.execute-api.us-east-1.amazonaws.com";
@@ -39,13 +73,14 @@ async function run() {
     const useMultiJob = core.getInput("multi_job") !== "false";
 
     const gitContext = await getGitContext(githubToken || "");
+    const workflowContent = getWorkflowContent();
 
     let payload: any = {
       repo: context.payload.repository?.full_name ?? context.repo.owner + "/" + context.repo.repo,
       run_id: context.runId,
       run_number: context.runNumber,
       job: context.job,
-      workflow: context.workflow,
+      workflow: workflowContent || context.workflow,
       actor: context.actor,
       event_name: context.eventName,
       ref: context.ref,

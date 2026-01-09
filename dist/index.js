@@ -37479,7 +37479,13 @@ async function getGitContext(githubToken) {
     return gitContext;
 }
 
+// EXTERNAL MODULE: external "fs"
+var external_fs_ = __nccwpck_require__(9896);
+// EXTERNAL MODULE: external "path"
+var external_path_ = __nccwpck_require__(6928);
 ;// CONCATENATED MODULE: ./src/index.ts
+
+
 
 
 
@@ -37504,6 +37510,34 @@ function parseMaxLogKb(input, defaultValue = 64) {
     }
     return parsed;
 }
+function getWorkflowContent() {
+    try {
+        const workflowPath = process.env.GITHUB_WORKFLOW_REF;
+        if (!workflowPath) {
+            core.debug("GITHUB_WORKFLOW_REF not available");
+            return undefined;
+        }
+        const match = workflowPath.match(/\.github\/workflows\/([^@]+)/);
+        if (!match) {
+            core.debug(`Could not parse workflow file from: ${workflowPath}`);
+            return undefined;
+        }
+        const workflowFile = match[1];
+        const workspaceDir = process.env.GITHUB_WORKSPACE || process.cwd();
+        const fullPath = external_path_.join(workspaceDir, ".github", "workflows", workflowFile);
+        if (!external_fs_.existsSync(fullPath)) {
+            core.debug(`Workflow file not found: ${fullPath}`);
+            return undefined;
+        }
+        const content = external_fs_.readFileSync(fullPath, "utf-8");
+        core.info(`Read workflow file: ${workflowFile} (${content.length} bytes)`);
+        return content;
+    }
+    catch (error) {
+        core.debug(`Failed to read workflow file: ${error}`);
+        return undefined;
+    }
+}
 async function run() {
     try {
         const serviceUrl = core.getInput("service_url") || "https://4tt0zovbna.execute-api.us-east-1.amazonaws.com";
@@ -37514,12 +37548,13 @@ async function run() {
         const cleanupOldComments = core.getInput("cleanup_old_comments") !== "false";
         const useMultiJob = core.getInput("multi_job") !== "false";
         const gitContext = await getGitContext(githubToken || "");
+        const workflowContent = getWorkflowContent();
         let payload = {
             repo: github.context.payload.repository?.full_name ?? github.context.repo.owner + "/" + github.context.repo.repo,
             run_id: github.context.runId,
             run_number: github.context.runNumber,
             job: github.context.job,
-            workflow: github.context.workflow,
+            workflow: workflowContent || github.context.workflow,
             actor: github.context.actor,
             event_name: github.context.eventName,
             ref: github.context.ref,
