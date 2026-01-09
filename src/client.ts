@@ -65,6 +65,115 @@ async function fetchWithRetry(
   throw lastError || new Error('Max retries exceeded');
 }
 
+export async function startAnalysis(serviceUrl: string, payload: any, githubToken?: string): Promise<{ analysisId: string; status: string }> {
+  const url = `${serviceUrl.replace(/\/$/, "")}/v1/analyze`;
+  
+  const headers: Record<string, string> = {
+    "content-type": "application/json"
+  };
+  
+  if (githubToken) {
+    headers["authorization"] = `Bearer ${githubToken}`;
+  }
+  
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
+  
+  try {
+    const res = await fetchWithRetry(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
+      signal: controller.signal
+    });
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      
+      if (res.status === 429) {
+        try {
+          const errorData = JSON.parse(text);
+          throw new Error(`Rate limited. Limit: ${errorData.limit}, Remaining: ${errorData.remaining}, Reset: ${errorData.reset_at}`);
+        } catch {
+          throw new Error(`Rate limited: ${text}`);
+        }
+      }
+      
+      throw new Error(`Service error (${res.status}): ${text}`);
+    }
+    
+    return await res.json();
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export async function getAnalysisStatus(serviceUrl: string, analysisId: string, githubToken?: string): Promise<any> {
+  const url = `${serviceUrl.replace(/\/$/, "")}/v1/analyze/${analysisId}`;
+  
+  const headers: Record<string, string> = {
+    "content-type": "application/json"
+  };
+  
+  if (githubToken) {
+    headers["authorization"] = `Bearer ${githubToken}`;
+  }
+  
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
+  
+  try {
+    const res = await fetchWithRetry(url, {
+      method: "GET",
+      headers,
+      signal: controller.signal
+    });
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`Service error (${res.status}): ${text}`);
+    }
+    
+    return await res.json();
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export async function analyzeWithPolling(
+  serviceUrl: string, 
+  payload: any, 
+  githubToken?: string,
+  maxWaitSeconds: number = 75,
+  pollIntervalSeconds: number = 3
+): Promise<any> {
+  const startTime = Date.now();
+  const maxWaitMs = maxWaitSeconds * 1000;
+  
+  const { analysisId } = await startAnalysis(serviceUrl, payload, githubToken);
+  console.log(`Analysis started with ID: ${analysisId}`);
+  
+  while (true) {
+    const elapsed = Date.now() - startTime;
+    if (elapsed >= maxWaitMs) {
+      throw new Error(`Analysis timed out after ${maxWaitSeconds} seconds`);
+    }
+    
+    await sleep(pollIntervalSeconds * 1000);
+    
+    const status = await getAnalysisStatus(serviceUrl, analysisId, githubToken);
+    console.log(`Analysis status: ${status.status}`);
+    
+    if (status.status === 'succeeded' || status.status === 'succeeded_with_errors') {
+      return status.result;
+    }
+    
+    if (status.status === 'failed') {
+      throw new Error(`Analysis failed: ${status.error?.message || 'Unknown error'}`);
+    }
+  }
+}
+
 export async function explainFailure(serviceUrl: string, payload: any, githubToken?: string): Promise<any> {
   const url = `${serviceUrl.replace(/\/$/, "")}/v1/explain`;
   

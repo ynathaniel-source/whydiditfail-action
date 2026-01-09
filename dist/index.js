@@ -31927,6 +31927,25 @@ async function fetchJobLogsBestEffort(maxLogKb, token) {
         return truncate("Failed to fetch logs. Ensure GITHUB_TOKEN has appropriate permissions.", maxLogKb * 1024);
     }
 }
+function extractFailedStepName(logs) {
+    const lines = logs.split("\n");
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (containsErrorIndicator(line)) {
+            for (let j = i; j >= Math.max(0, i - 20); j--) {
+                const stepMatch = lines[j].match(/^##\[group\]Run (.+)|^Run (.+)|^##\[group\](.+)/);
+                if (stepMatch) {
+                    const stepName = stepMatch[1] || stepMatch[2] || stepMatch[3];
+                    if (stepName && !stepName.includes('Post') && !stepName.includes('Complete')) {
+                        core.info(`Detected failed step: ${stepName}`);
+                        return stepName.trim();
+                    }
+                }
+            }
+        }
+    }
+    return "unknown";
+}
 async function fetchLogsFromGitHub(token) {
     const githubToken = token || process.env.GITHUB_TOKEN;
     if (!githubToken) {
@@ -31980,10 +31999,15 @@ function extractRelevantLogs(fullLogs, jobName) {
     const seenLines = new Set();
     let inFailedStep = false;
     let errorContext = 0;
+    let currentStepName = null;
     core.info(`Extracting relevant logs from ${lines.length} total lines`);
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         if (isStepBoundary(line)) {
+            const stepMatch = line.match(/^##\[group\]Run (.+)|^Run (.+)/);
+            if (stepMatch) {
+                currentStepName = stepMatch[1] || stepMatch[2];
+            }
             if (inFailedStep && errorContext > 0) {
                 inFailedStep = false;
                 errorContext = 0;
@@ -31995,7 +32019,7 @@ function extractRelevantLogs(fullLogs, jobName) {
                     seenLines.add(line);
                     relevantLines.push(line);
                 }
-                for (let j = Math.max(0, i - 10); j < i; j++) {
+                for (let j = Math.max(0, i - 20); j < i; j++) {
                     if (!seenLines.has(lines[j])) {
                         seenLines.add(lines[j]);
                         relevantLines.push(lines[j]);
@@ -32010,11 +32034,11 @@ function extractRelevantLogs(fullLogs, jobName) {
                 relevantLines.push(line);
             }
             if (containsErrorIndicator(line)) {
-                errorContext = 30;
+                errorContext = 50;
             }
         }
         else if (containsErrorIndicator(line)) {
-            for (let j = Math.max(0, i - 10); j < Math.min(lines.length, i + 30); j++) {
+            for (let j = Math.max(0, i - 20); j < Math.min(lines.length, i + 50); j++) {
                 if (!seenLines.has(lines[j])) {
                     seenLines.add(lines[j]);
                     relevantLines.push(lines[j]);
@@ -32027,9 +32051,31 @@ function extractRelevantLogs(fullLogs, jobName) {
     }
     core.info(`Extracted ${relevantLines.length} relevant lines`);
     if (relevantLines.length === 0) {
-        core.info("No relevant lines found, returning last 100 lines");
-        const lastLines = lines.slice(-100);
+        core.info("No relevant lines found, returning last 200 lines");
+        const lastLines = lines.slice(-200);
         return lastLines.join("\n");
+    }
+    if (relevantLines.length < 10) {
+        core.warning(`Only ${relevantLines.length} relevant lines found, adding more context`);
+        const errorLineIndices = new Set();
+        for (let i = 0; i < lines.length; i++) {
+            if (containsErrorIndicator(lines[i])) {
+                errorLineIndices.add(i);
+            }
+        }
+        if (errorLineIndices.size > 0) {
+            const firstError = Math.min(...errorLineIndices);
+            const lastError = Math.max(...errorLineIndices);
+            const contextStart = Math.max(0, firstError - 50);
+            const contextEnd = Math.min(lines.length, lastError + 100);
+            for (let i = contextStart; i < contextEnd; i++) {
+                if (!seenLines.has(lines[i])) {
+                    seenLines.add(lines[i]);
+                    relevantLines.push(lines[i]);
+                }
+            }
+            core.info(`Added context, now have ${relevantLines.length} lines`);
+        }
     }
     return relevantLines.join("\n");
 }
@@ -32164,7 +32210,7 @@ function multi_job_logs_extractRelevantLogs(fullLogs, jobName) {
                     seenLines.add(line);
                     relevantLines.push(line);
                 }
-                for (let j = Math.max(0, i - 10); j < i; j++) {
+                for (let j = Math.max(0, i - 20); j < i; j++) {
                     if (!seenLines.has(lines[j])) {
                         seenLines.add(lines[j]);
                         relevantLines.push(lines[j]);
@@ -32184,11 +32230,11 @@ function multi_job_logs_extractRelevantLogs(fullLogs, jobName) {
                 relevantLines.push(line);
             }
             if (multi_job_logs_containsErrorIndicator(line)) {
-                errorContext = 30;
+                errorContext = 50;
             }
         }
         else if (multi_job_logs_containsErrorIndicator(line)) {
-            for (let j = Math.max(0, i - 10); j < Math.min(lines.length, i + 30); j++) {
+            for (let j = Math.max(0, i - 20); j < Math.min(lines.length, i + 50); j++) {
                 if (!seenLines.has(lines[j])) {
                     seenLines.add(lines[j]);
                     relevantLines.push(lines[j]);
@@ -32201,9 +32247,31 @@ function multi_job_logs_extractRelevantLogs(fullLogs, jobName) {
     }
     core.info(`Extracted ${relevantLines.length} relevant lines for job ${jobName}`);
     if (relevantLines.length === 0) {
-        core.info("No relevant lines found, returning last 100 lines");
-        const lastLines = lines.slice(-100);
+        core.info("No relevant lines found, returning last 200 lines");
+        const lastLines = lines.slice(-200);
         return lastLines.join("\n");
+    }
+    if (relevantLines.length < 10) {
+        core.warning(`Only ${relevantLines.length} relevant lines found for job ${jobName}, adding more context`);
+        const errorLineIndices = new Set();
+        for (let i = 0; i < lines.length; i++) {
+            if (multi_job_logs_containsErrorIndicator(lines[i])) {
+                errorLineIndices.add(i);
+            }
+        }
+        if (errorLineIndices.size > 0) {
+            const firstError = Math.min(...errorLineIndices);
+            const lastError = Math.max(...errorLineIndices);
+            const contextStart = Math.max(0, firstError - 50);
+            const contextEnd = Math.min(lines.length, lastError + 100);
+            for (let i = contextStart; i < contextEnd; i++) {
+                if (!seenLines.has(lines[i])) {
+                    seenLines.add(lines[i]);
+                    relevantLines.push(lines[i]);
+                }
+            }
+            core.info(`Added context for job ${jobName}, now have ${relevantLines.length} lines`);
+        }
     }
     return relevantLines.join("\n");
 }
@@ -32784,6 +32852,89 @@ async function fetchWithRetry(url, options, retryOptions = { maxRetries: 3, init
         }
     }
     throw lastError || new Error('Max retries exceeded');
+}
+async function startAnalysis(serviceUrl, payload, githubToken) {
+    const url = `${serviceUrl.replace(/\/$/, "")}/v1/analyze`;
+    const headers = {
+        "content-type": "application/json"
+    };
+    if (githubToken) {
+        headers["authorization"] = `Bearer ${githubToken}`;
+    }
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+    try {
+        const res = await fetchWithRetry(url, {
+            method: "POST",
+            headers,
+            body: JSON.stringify(payload),
+            signal: controller.signal
+        });
+        if (!res.ok) {
+            const text = await res.text().catch(() => "");
+            if (res.status === 429) {
+                try {
+                    const errorData = JSON.parse(text);
+                    throw new Error(`Rate limited. Limit: ${errorData.limit}, Remaining: ${errorData.remaining}, Reset: ${errorData.reset_at}`);
+                }
+                catch {
+                    throw new Error(`Rate limited: ${text}`);
+                }
+            }
+            throw new Error(`Service error (${res.status}): ${text}`);
+        }
+        return await res.json();
+    }
+    finally {
+        clearTimeout(timeout);
+    }
+}
+async function getAnalysisStatus(serviceUrl, analysisId, githubToken) {
+    const url = `${serviceUrl.replace(/\/$/, "")}/v1/analyze/${analysisId}`;
+    const headers = {
+        "content-type": "application/json"
+    };
+    if (githubToken) {
+        headers["authorization"] = `Bearer ${githubToken}`;
+    }
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+    try {
+        const res = await fetchWithRetry(url, {
+            method: "GET",
+            headers,
+            signal: controller.signal
+        });
+        if (!res.ok) {
+            const text = await res.text().catch(() => "");
+            throw new Error(`Service error (${res.status}): ${text}`);
+        }
+        return await res.json();
+    }
+    finally {
+        clearTimeout(timeout);
+    }
+}
+async function analyzeWithPolling(serviceUrl, payload, githubToken, maxWaitSeconds = 75, pollIntervalSeconds = 3) {
+    const startTime = Date.now();
+    const maxWaitMs = maxWaitSeconds * 1000;
+    const { analysisId } = await startAnalysis(serviceUrl, payload, githubToken);
+    console.log(`Analysis started with ID: ${analysisId}`);
+    while (true) {
+        const elapsed = Date.now() - startTime;
+        if (elapsed >= maxWaitMs) {
+            throw new Error(`Analysis timed out after ${maxWaitSeconds} seconds`);
+        }
+        await sleep(pollIntervalSeconds * 1000);
+        const status = await getAnalysisStatus(serviceUrl, analysisId, githubToken);
+        console.log(`Analysis status: ${status.status}`);
+        if (status.status === 'succeeded' || status.status === 'succeeded_with_errors') {
+            return status.result;
+        }
+        if (status.status === 'failed') {
+            throw new Error(`Analysis failed: ${status.error?.message || 'Unknown error'}`);
+        }
+    }
 }
 async function explainFailure(serviceUrl, payload, githubToken) {
     const url = `${serviceUrl.replace(/\/$/, "")}/v1/explain`;
@@ -37578,14 +37729,32 @@ async function run() {
             }
             core.info(`Sending ${failedJobs.length} failed jobs for analysis`);
             payload.failed_jobs = failedJobs;
+            if (failedJobs.length > 0 && failedJobs[0].logs) {
+                const detectedStep = extractFailedStepName(failedJobs[0].logs);
+                if (detectedStep !== "unknown") {
+                    payload.failed_step = detectedStep;
+                }
+            }
         }
         else {
             core.info("Using single-job (legacy) analysis mode");
             const logs = await fetchJobLogsBestEffort(maxLogKb, githubToken);
             payload.log_excerpt = logs;
+            const detectedStep = extractFailedStepName(logs);
+            if (detectedStep !== "unknown") {
+                payload.failed_step = detectedStep;
+            }
         }
         validatePayloadSize(payload);
-        const result = await explainFailure(serviceUrl, payload, githubToken);
+        let result;
+        if (useMultiJob) {
+            core.info("Using async analysis with polling");
+            result = await analyzeWithPolling(serviceUrl, payload, githubToken, 75, 3);
+        }
+        else {
+            core.info("Using synchronous analysis (legacy mode)");
+            result = await explainFailure(serviceUrl, payload, githubToken);
+        }
         // Debug: Log the first job's locations to see what paths are being returned
         if (result.jobs && result.jobs.length > 0) {
             for (const job of result.jobs) {

@@ -1,9 +1,9 @@
 import * as core from "@actions/core";
 import { context } from "@actions/github";
-import { fetchJobLogsBestEffort } from "./logs.js";
+import { fetchJobLogsBestEffort, extractFailedStepName } from "./logs.js";
 import { fetchMultipleFailedJobs } from "./multi-job-logs.js";
 import { postSummary } from "./summary.js";
-import { explainFailure } from "./client.js";
+import { explainFailure, analyzeWithPolling } from "./client.js";
 import { validatePayloadSize } from "./logLimits.js";
 import { postFixSuggestions } from "./review-comments.js";
 import { getGitContext } from "./git-context.js";
@@ -107,15 +107,34 @@ async function run() {
 
       core.info(`Sending ${failedJobs.length} failed jobs for analysis`);
       payload.failed_jobs = failedJobs;
+      
+      if (failedJobs.length > 0 && failedJobs[0].logs) {
+        const detectedStep = extractFailedStepName(failedJobs[0].logs);
+        if (detectedStep !== "unknown") {
+          payload.failed_step = detectedStep;
+        }
+      }
     } else {
       core.info("Using single-job (legacy) analysis mode");
       const logs = await fetchJobLogsBestEffort(maxLogKb, githubToken);
       payload.log_excerpt = logs;
+      
+      const detectedStep = extractFailedStepName(logs);
+      if (detectedStep !== "unknown") {
+        payload.failed_step = detectedStep;
+      }
     }
 
     validatePayloadSize(payload);
 
-    const result = await explainFailure(serviceUrl, payload, githubToken);
+    let result;
+    if (useMultiJob) {
+      core.info("Using async analysis with polling");
+      result = await analyzeWithPolling(serviceUrl, payload, githubToken, 75, 3);
+    } else {
+      core.info("Using synchronous analysis (legacy mode)");
+      result = await explainFailure(serviceUrl, payload, githubToken);
+    }
 
     // Debug: Log the first job's locations to see what paths are being returned
     if (result.jobs && result.jobs.length > 0) {
