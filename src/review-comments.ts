@@ -22,6 +22,7 @@ export interface FixSuggestion {
   error_code?: string;
   evidence?: string;
   tip?: string;
+  jobName?: string;
 }
 
 export interface PostFixSuggestionsResult {
@@ -539,6 +540,7 @@ function buildInlineSuggestionBody(fix: FixSuggestion, runId: number, jobName: s
   const confidence = fix.confidence >= 0.85 ? 'High' : fix.confidence >= 0.65 ? 'Medium' : 'Low';
   const evidence = fix.evidence || `${fix.path}:${fix.line_start}`;
   const tip = fix.tip || '';
+  const displayJobName = fix.jobName || jobName;
 
   let body = `### ✅ Fix ${errorCode}: ${title}\n\n`;
   body += `${rationale}\n\n`;
@@ -557,7 +559,7 @@ function buildInlineSuggestionBody(fix: FixSuggestion, runId: number, jobName: s
   }
   
   body += `\n---\n\n`;
-  body += `<sub>Job: ${jobName} · Run #${runId} · Powered by [WhyDidItFail](https://github.com/marketplace/actions/whydiditfail)</sub>\n\n`;
+  body += `<sub>Job: ${displayJobName} · Run #${runId} · Powered by [WhyDidItFail](https://github.com/marketplace/actions/whydiditfail)</sub>\n\n`;
   body += WDF_MARKER;
 
   return body;

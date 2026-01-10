@@ -31927,25 +31927,6 @@ async function fetchJobLogsBestEffort(maxLogKb, token) {
         return truncate("Failed to fetch logs. Ensure GITHUB_TOKEN has appropriate permissions.", maxLogKb * 1024);
     }
 }
-function extractFailedStepName(logs) {
-    const lines = logs.split("\n");
-    for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        if (containsErrorIndicator(line)) {
-            for (let j = i; j >= Math.max(0, i - 20); j--) {
-                const stepMatch = lines[j].match(/^##\[group\]Run (.+)|^Run (.+)|^##\[group\](.+)/);
-                if (stepMatch) {
-                    const stepName = stepMatch[1] || stepMatch[2] || stepMatch[3];
-                    if (stepName && !stepName.includes('Post') && !stepName.includes('Complete')) {
-                        core.info(`Detected failed step: ${stepName}`);
-                        return stepName.trim();
-                    }
-                }
-            }
-        }
-    }
-    return "unknown";
-}
 async function fetchLogsFromGitHub(token) {
     const githubToken = token || process.env.GITHUB_TOKEN;
     if (!githubToken) {
@@ -31999,15 +31980,10 @@ function extractRelevantLogs(fullLogs, jobName) {
     const seenLines = new Set();
     let inFailedStep = false;
     let errorContext = 0;
-    let currentStepName = null;
     core.info(`Extracting relevant logs from ${lines.length} total lines`);
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         if (isStepBoundary(line)) {
-            const stepMatch = line.match(/^##\[group\]Run (.+)|^Run (.+)/);
-            if (stepMatch) {
-                currentStepName = stepMatch[1] || stepMatch[2];
-            }
             if (inFailedStep && errorContext > 0) {
                 inFailedStep = false;
                 errorContext = 0;
@@ -32019,7 +31995,7 @@ function extractRelevantLogs(fullLogs, jobName) {
                     seenLines.add(line);
                     relevantLines.push(line);
                 }
-                for (let j = Math.max(0, i - 20); j < i; j++) {
+                for (let j = Math.max(0, i - 10); j < i; j++) {
                     if (!seenLines.has(lines[j])) {
                         seenLines.add(lines[j]);
                         relevantLines.push(lines[j]);
@@ -32034,11 +32010,11 @@ function extractRelevantLogs(fullLogs, jobName) {
                 relevantLines.push(line);
             }
             if (containsErrorIndicator(line)) {
-                errorContext = 50;
+                errorContext = 30;
             }
         }
         else if (containsErrorIndicator(line)) {
-            for (let j = Math.max(0, i - 20); j < Math.min(lines.length, i + 50); j++) {
+            for (let j = Math.max(0, i - 10); j < Math.min(lines.length, i + 30); j++) {
                 if (!seenLines.has(lines[j])) {
                     seenLines.add(lines[j]);
                     relevantLines.push(lines[j]);
@@ -32051,31 +32027,9 @@ function extractRelevantLogs(fullLogs, jobName) {
     }
     core.info(`Extracted ${relevantLines.length} relevant lines`);
     if (relevantLines.length === 0) {
-        core.info("No relevant lines found, returning last 200 lines");
-        const lastLines = lines.slice(-200);
+        core.info("No relevant lines found, returning last 100 lines");
+        const lastLines = lines.slice(-100);
         return lastLines.join("\n");
-    }
-    if (relevantLines.length < 10) {
-        core.warning(`Only ${relevantLines.length} relevant lines found, adding more context`);
-        const errorLineIndices = new Set();
-        for (let i = 0; i < lines.length; i++) {
-            if (containsErrorIndicator(lines[i])) {
-                errorLineIndices.add(i);
-            }
-        }
-        if (errorLineIndices.size > 0) {
-            const firstError = Math.min(...errorLineIndices);
-            const lastError = Math.max(...errorLineIndices);
-            const contextStart = Math.max(0, firstError - 50);
-            const contextEnd = Math.min(lines.length, lastError + 100);
-            for (let i = contextStart; i < contextEnd; i++) {
-                if (!seenLines.has(lines[i])) {
-                    seenLines.add(lines[i]);
-                    relevantLines.push(lines[i]);
-                }
-            }
-            core.info(`Added context, now have ${relevantLines.length} lines`);
-        }
     }
     return relevantLines.join("\n");
 }
@@ -32123,6 +32077,22 @@ function truncate(s, maxBytes) {
         start++;
     }
     return b.subarray(start).toString("utf8");
+}
+function extractFailedStepName(logs) {
+    const lines = logs.split('\n');
+    for (const line of lines) {
+        if (isStepBoundary(line) && containsErrorIndicator(line)) {
+            const runMatch = line.match(/^Run (.+)/);
+            if (runMatch) {
+                return runMatch[1].trim();
+            }
+            const groupMatch = line.match(/##\[group\](.+)/);
+            if (groupMatch) {
+                return groupMatch[1].trim();
+            }
+        }
+    }
+    return "unknown";
 }
 
 ;// CONCATENATED MODULE: ./src/multi-job-logs.ts
@@ -32210,7 +32180,7 @@ function multi_job_logs_extractRelevantLogs(fullLogs, jobName) {
                     seenLines.add(line);
                     relevantLines.push(line);
                 }
-                for (let j = Math.max(0, i - 20); j < i; j++) {
+                for (let j = Math.max(0, i - 10); j < i; j++) {
                     if (!seenLines.has(lines[j])) {
                         seenLines.add(lines[j]);
                         relevantLines.push(lines[j]);
@@ -32230,11 +32200,11 @@ function multi_job_logs_extractRelevantLogs(fullLogs, jobName) {
                 relevantLines.push(line);
             }
             if (multi_job_logs_containsErrorIndicator(line)) {
-                errorContext = 50;
+                errorContext = 30;
             }
         }
         else if (multi_job_logs_containsErrorIndicator(line)) {
-            for (let j = Math.max(0, i - 20); j < Math.min(lines.length, i + 50); j++) {
+            for (let j = Math.max(0, i - 10); j < Math.min(lines.length, i + 30); j++) {
                 if (!seenLines.has(lines[j])) {
                     seenLines.add(lines[j]);
                     relevantLines.push(lines[j]);
@@ -32247,31 +32217,9 @@ function multi_job_logs_extractRelevantLogs(fullLogs, jobName) {
     }
     core.info(`Extracted ${relevantLines.length} relevant lines for job ${jobName}`);
     if (relevantLines.length === 0) {
-        core.info("No relevant lines found, returning last 200 lines");
-        const lastLines = lines.slice(-200);
+        core.info("No relevant lines found, returning last 100 lines");
+        const lastLines = lines.slice(-100);
         return lastLines.join("\n");
-    }
-    if (relevantLines.length < 10) {
-        core.warning(`Only ${relevantLines.length} relevant lines found for job ${jobName}, adding more context`);
-        const errorLineIndices = new Set();
-        for (let i = 0; i < lines.length; i++) {
-            if (multi_job_logs_containsErrorIndicator(lines[i])) {
-                errorLineIndices.add(i);
-            }
-        }
-        if (errorLineIndices.size > 0) {
-            const firstError = Math.min(...errorLineIndices);
-            const lastError = Math.max(...errorLineIndices);
-            const contextStart = Math.max(0, firstError - 50);
-            const contextEnd = Math.min(lines.length, lastError + 100);
-            for (let i = contextStart; i < contextEnd; i++) {
-                if (!seenLines.has(lines[i])) {
-                    seenLines.add(lines[i]);
-                    relevantLines.push(lines[i]);
-                }
-            }
-            core.info(`Added context for job ${jobName}, now have ${relevantLines.length} lines`);
-        }
     }
     return relevantLines.join("\n");
 }
@@ -32328,13 +32276,14 @@ function truncateToByteLimit(text, maxBytes) {
 
 ;// CONCATENATED MODULE: ./src/summary.ts
 
-function formatSummary(explanation, ctx) {
+function formatSummary(explanation, ctx, postingStatus) {
     const e = explanation ?? {};
     if (e.summary && e.jobs && Array.isArray(e.jobs)) {
-        return formatMultiJobSummary(e, ctx);
+        return formatMultiJobSummary(e, ctx, postingStatus);
     }
     if (e.skipped) {
-        let summary = "# ⏭️ Analysis Skipped\n\n";
+        let summary = formatStatusSection(postingStatus);
+        summary += "# ⏭️ Analysis Skipped\n\n";
         if (e.code === "LOW_CONFIDENCE") {
             summary += "### 📊 Low Confidence Detection\n\n";
             if (e.confidenceScore !== undefined) {
@@ -32371,7 +32320,8 @@ function formatSummary(explanation, ctx) {
         return summary;
     }
     if (e.rate_limited) {
-        let summary = "# 🚦 Rate Limit Reached\n\n";
+        let summary = formatStatusSection(postingStatus);
+        summary += "# 🚦 Rate Limit Reached\n\n";
         summary += "> ⚠️ **WhyDidItFail has reached its analysis limit for this repository.**\n\n";
         if (e.limit) {
             summary += "| Metric | Value |\n";
@@ -32423,7 +32373,8 @@ function formatSummary(explanation, ctx) {
             title = rootCause;
         }
     }
-    let summary = title === "Failure Analysis"
+    let summary = formatStatusSection(postingStatus);
+    summary += title === "Failure Analysis"
         ? `## 🔎 Failure Analysis\n\n`
         : `## 🔎 Failure Analysis · ${title}\n\n`;
     summary += `${confidenceEmoji} **Confidence:** ${confidencePercent}% · **Category:** \`${category}\` · **ETA:** ${timeToFix} · 📊 **Usage:** ${remaining} / ${limit} remaining${resetText}\n\n`;
@@ -32540,7 +32491,7 @@ function formatSummary(explanation, ctx) {
     summary += '<sub>Powered by <a href="https://github.com/marketplace/actions/whydiditfail">WhyDidItFail</a></sub>\n';
     return summary;
 }
-async function postSummary(explanation) {
+async function postSummary(explanation, postingStatus) {
     const ctx = process.env.GITHUB_SERVER_URL && process.env.GITHUB_REPOSITORY && process.env.GITHUB_SHA
         ? {
             serverUrl: process.env.GITHUB_SERVER_URL,
@@ -32548,7 +32499,7 @@ async function postSummary(explanation) {
             sha: process.env.GITHUB_SHA
         }
         : undefined;
-    const summaryText = formatSummary(explanation, ctx);
+    const summaryText = formatSummary(explanation, ctx, postingStatus);
     await core.summary.addRaw(summaryText).write();
 }
 function renderMd(s) {
@@ -32611,11 +32562,12 @@ function formatLocationLink(loc, ctx) {
     }
     return `- [${labelParts.join(": ")}](${url})`;
 }
-function formatMultiJobSummary(result, ctx) {
+function formatMultiJobSummary(result, ctx, postingStatus) {
     const summary = result.summary || {};
     const jobs = result.jobs || [];
     const rootCauses = result.rootCauses || [];
-    let output = "## 🔎 Multi-Job Failure Analysis\n\n";
+    let output = formatStatusSection(postingStatus);
+    output += "## 🔎 Multi-Job Failure Analysis\n\n";
     // Usage info at the top
     const successfulAnalyses = jobs.filter((j) => j.success && !j.skipped && !j.isCascadingFailure).length;
     output += `🔢 **Analyses Used:** ${successfulAnalyses} this run`;
@@ -32809,6 +32761,58 @@ function renderJobWhere(job, ctx) {
         }
     }
     return renderMd(job.where ?? "Unknown");
+}
+function formatStatusSection(status) {
+    if (!status)
+        return "";
+    const lines = [];
+    lines.push("## 📊 Status\n");
+    lines.push("- ✅ Analysis completed");
+    if (status.suggestions) {
+        const s = status.suggestions;
+        if (s.attempted) {
+            if (s.status.ok) {
+                if (s.posted === s.total) {
+                    lines.push(`- ✅ Posted ${s.posted} inline suggestion${s.posted !== 1 ? 's' : ''}`);
+                }
+                else if (s.posted > 0) {
+                    lines.push(`- ⚠️ Posted ${s.posted} of ${s.total} inline suggestions: Some failed`);
+                }
+                else {
+                    lines.push(`- ⚠️ Failed to post ${s.total} suggestion${s.total !== 1 ? 's' : ''}: Unknown error`);
+                }
+            }
+            else {
+                if (s.posted > 0) {
+                    lines.push(`- ⚠️ Posted ${s.posted} of ${s.total} inline suggestions: ${s.status.reason}`);
+                }
+                else {
+                    lines.push(`- ⚠️ Failed to post suggestions: ${s.status.reason}`);
+                }
+            }
+        }
+        else {
+            const reason = !s.status.ok ? s.status.reason : 'Unknown reason';
+            lines.push(`- ℹ️ Suggestions not attempted: ${reason}`);
+        }
+    }
+    if (status.prComment) {
+        const c = status.prComment;
+        if (c.attempted) {
+            if (c.status.ok) {
+                lines.push("- ✅ Posted PR comment");
+            }
+            else {
+                lines.push(`- ⚠️ Failed to post PR comment: ${c.status.reason}`);
+            }
+        }
+        else {
+            const reason = !c.status.ok ? c.status.reason : 'Unknown reason';
+            lines.push(`- ℹ️ PR comment not attempted: ${reason}`);
+        }
+    }
+    lines.push("\n---\n");
+    return lines.join("\n");
 }
 
 ;// CONCATENATED MODULE: ./src/client.ts
@@ -33038,23 +33042,39 @@ async function postFixSuggestions(token, fixSuggestions, apiResponse, cleanupOld
     const octokit = github.getOctokit(token);
     const isPR = context.payload.pull_request !== undefined;
     const commitSha = context.sha;
+    const errors = [];
     if (!fixSuggestions || fixSuggestions.length === 0) {
         if (isPR && apiResponse?.root_cause) {
             const pullNumber = getPullNumber(context);
-            await postNoSuggestionComment(octokit, context, pullNumber, apiResponse, cleanupOldComments);
-            return { posted: 1, skipped: 0 };
+            try {
+                await postNoSuggestionComment(octokit, context, pullNumber, apiResponse, cleanupOldComments);
+                return { posted: 1, skipped: 0, errors: [] };
+            }
+            catch (error) {
+                const errorMsg = toErrorMessage(error);
+                errors.push(errorMsg);
+                return { posted: 0, skipped: 0, errors };
+            }
         }
-        return { posted: 0, skipped: 0 };
+        return { posted: 0, skipped: 0, errors: [] };
     }
     let posted = 0;
     let skipped = 0;
     if (isPR) {
-        posted = await postPRReviewComments(octokit, context, fixSuggestions, commitSha, apiResponse, cleanupOldComments);
+        const result = await postPRReviewComments(octokit, context, fixSuggestions, commitSha, apiResponse, cleanupOldComments);
+        posted = result.posted;
+        if (result.error) {
+            errors.push(result.error);
+        }
     }
     else {
-        posted = await postCommitComments(octokit, context, fixSuggestions, commitSha);
+        const result = await postCommitComments(octokit, context, fixSuggestions, commitSha);
+        posted = result.posted;
+        if (result.error) {
+            errors.push(result.error);
+        }
     }
-    return { posted, skipped: fixSuggestions.length - posted };
+    return { posted, skipped: fixSuggestions.length - posted, errors };
 }
 async function postNoSuggestionComment(octokit, context, pullNumber, apiResponse, cleanupOldComments = false) {
     const { owner, repo } = context.repo;
@@ -33150,20 +33170,23 @@ async function postPRReviewComments(octokit, context, fixSuggestions, commitSha,
             comments
         });
         core.info(`Posted ${comments.length} inline fix suggestions to PR #${pullNumber}`);
-        return fixSuggestions.length;
+        return { posted: fixSuggestions.length };
     }
     catch (error) {
         if (error?.status === 403 || error?.message?.includes('Resource not accessible')) {
-            core.warning(`⚠️  Cannot post PR review comments: missing 'pull-requests: write' permission. Add it to your workflow to enable inline fix suggestions.`);
-            return 0;
+            const errorMsg = "Missing 'pull-requests: write' permission";
+            core.warning(`⚠️  Cannot post PR review comments: ${errorMsg}. Add it to your workflow to enable inline fix suggestions.`);
+            return { posted: 0, error: errorMsg };
         }
         else if (error?.status === 422 || error?.message?.includes('Path could not be resolved')) {
             core.info(`Files not in PR diff, falling back to PR comment`);
-            return await postPRCommentFallback(octokit, context, fixSuggestions, pullNumber, apiResponse, cleanupOldComments);
+            const fallbackResult = await postPRCommentFallback(octokit, context, fixSuggestions, pullNumber, apiResponse, cleanupOldComments);
+            return fallbackResult;
         }
         else {
-            core.warning(`Failed to post PR review comments: ${error}`);
-            return 0;
+            const errorMsg = toErrorMessage(error);
+            core.warning(`Failed to post PR review comments: ${errorMsg}`);
+            return { posted: 0, error: errorMsg };
         }
     }
 }
@@ -33215,11 +33238,12 @@ async function postPRCommentFallback(octokit, context, fixSuggestions, pullNumbe
             body
         });
         core.info(`Posted fix suggestions as PR comment #${pullNumber}`);
-        return fixSuggestions.length;
+        return { posted: fixSuggestions.length };
     }
     catch (error) {
-        core.warning(`Failed to post PR comment: ${error}`);
-        return 0;
+        const errorMsg = toErrorMessage(error);
+        core.warning(`Failed to post PR comment: ${errorMsg}`);
+        return { posted: 0, error: errorMsg };
     }
 }
 function detectLanguage(filePath) {
@@ -33320,6 +33344,7 @@ async function cleanupOldReviewComments(octokit, owner, repo, pullNumber, curren
 async function postCommitComments(octokit, context, fixSuggestions, commitSha) {
     const { owner, repo } = context.repo;
     let posted = 0;
+    const errors = [];
     for (const fix of fixSuggestions) {
         try {
             const body = buildFallbackSuggestionBody(fix, fix.path);
@@ -33334,13 +33359,20 @@ async function postCommitComments(octokit, context, fixSuggestions, commitSha) {
             posted++;
         }
         catch (error) {
-            core.warning(`Failed to post commit comment for ${fix.path}: ${error}`);
+            const errorMsg = toErrorMessage(error);
+            core.warning(`Failed to post commit comment for ${fix.path}: ${errorMsg}`);
+            if (errors.length === 0) {
+                errors.push(errorMsg);
+            }
         }
     }
     if (posted > 0) {
         core.info(`Posted ${posted} fix suggestions as commit comments`);
     }
-    return posted;
+    return {
+        posted,
+        error: errors.length > 0 ? errors[0] : undefined
+    };
 }
 function groupFixesByFile(fixes) {
     const grouped = {};
@@ -33401,6 +33433,7 @@ function buildInlineSuggestionBody(fix, runId, jobName) {
     const confidence = fix.confidence >= 0.85 ? 'High' : fix.confidence >= 0.65 ? 'Medium' : 'Low';
     const evidence = fix.evidence || `${fix.path}:${fix.line_start}`;
     const tip = fix.tip || '';
+    const displayJobName = fix.jobName || jobName;
     let body = `### ✅ Fix ${errorCode}: ${title}\n\n`;
     body += `${rationale}\n\n`;
     body += '```suggestion\n';
@@ -33415,7 +33448,7 @@ function buildInlineSuggestionBody(fix, runId, jobName) {
         body += `\n💡 **Tip:** ${tip}\n`;
     }
     body += `\n---\n\n`;
-    body += `<sub>Job: ${jobName} · Run #${runId} · Powered by [WhyDidItFail](https://github.com/marketplace/actions/whydiditfail)</sub>\n\n`;
+    body += `<sub>Job: ${displayJobName} · Run #${runId} · Powered by [WhyDidItFail](https://github.com/marketplace/actions/whydiditfail)</sub>\n\n`;
     body += WDF_MARKER;
     return body;
 }
@@ -33443,6 +33476,18 @@ function buildCombinedFallbackBody(fixes, filePath) {
         body += buildFallbackSuggestionBody(fix, filePath);
     });
     return body;
+}
+function toErrorMessage(error) {
+    if (error instanceof Error) {
+        return error.message;
+    }
+    if (typeof error === 'string') {
+        return error;
+    }
+    if (error && typeof error === 'object' && 'message' in error) {
+        return String(error.message);
+    }
+    return String(error);
 }
 
 ;// CONCATENATED MODULE: ./node_modules/@octokit/rest/node_modules/universal-user-agent/index.js
@@ -34117,7 +34162,7 @@ async function fetchWrapper(requestOptions) {
   }
   if (status >= 400) {
     octokitResponse.data = await getResponseData(fetchResponse);
-    throw new RequestError(toErrorMessage(octokitResponse.data), status, {
+    throw new RequestError(dist_bundle_toErrorMessage(octokitResponse.data), status, {
       response: octokitResponse,
       request: requestOptions
     });
@@ -34151,7 +34196,7 @@ async function getResponseData(response) {
 function isJSONResponse(mimetype) {
   return mimetype.type === "application/json" || mimetype.type === "application/scim+json";
 }
-function toErrorMessage(data) {
+function dist_bundle_toErrorMessage(data) {
   if (typeof data === "string") {
     return data;
   }
@@ -37630,11 +37675,38 @@ async function getGitContext(githubToken) {
     return gitContext;
 }
 
+;// CONCATENATED MODULE: ./src/fix-suggestions-extractor.ts
+function extractFixSuggestions(result) {
+    const topLevel = Array.isArray(result?.fix_suggestions) ? result.fix_suggestions : [];
+    const fromJobs = Array.isArray(result?.jobs)
+        ? result.jobs.flatMap((job) => {
+            const suggestions = Array.isArray(job?.fix_suggestions) ? job.fix_suggestions : [];
+            return suggestions.map((s) => ({
+                ...s,
+                jobName: job.jobName || job.name
+            }));
+        })
+        : [];
+    const combined = fromJobs.length > 0 ? fromJobs : topLevel;
+    return dedupeFixSuggestions(combined);
+}
+function dedupeFixSuggestions(suggestions) {
+    const seen = new Set();
+    return suggestions.filter((s) => {
+        const key = `${s.path}:${s.line_start}-${s.line_end}:${s.replacement}`;
+        if (seen.has(key))
+            return false;
+        seen.add(key);
+        return true;
+    });
+}
+
 // EXTERNAL MODULE: external "fs"
 var external_fs_ = __nccwpck_require__(9896);
 // EXTERNAL MODULE: external "path"
 var external_path_ = __nccwpck_require__(6928);
 ;// CONCATENATED MODULE: ./src/index.ts
+
 
 
 
@@ -37766,20 +37838,71 @@ async function run() {
         if (mode !== "summary") {
             core.warning(`mode=${mode} not implemented in scaffold; using summary`);
         }
-        await postSummary(result);
+        const postingStatus = {
+            analysisCompleted: true
+        };
         if (result.skipped) {
             core.info(`⏭️ Analysis skipped: ${result.reason || 'Low confidence'}`);
+            await postSummary(result, postingStatus);
             return;
         }
-        if (suggestFixes && result.fix_suggestions && result.fix_suggestions.length > 0 && githubToken) {
-            const { posted, skipped } = await postFixSuggestions(githubToken, result.fix_suggestions, result, cleanupOldComments);
-            if (posted > 0) {
-                core.info(`✅ Posted ${posted} fix suggestion(s)`);
+        const fixSuggestions = extractFixSuggestions(result);
+        if (suggestFixes && fixSuggestions.length > 0 && githubToken) {
+            postingStatus.suggestions = {
+                attempted: true,
+                total: fixSuggestions.length,
+                posted: 0,
+                skipped: 0,
+                status: { ok: true }
+            };
+            try {
+                const { posted, skipped, errors } = await postFixSuggestions(githubToken, fixSuggestions, result, cleanupOldComments);
+                postingStatus.suggestions.posted = posted;
+                postingStatus.suggestions.skipped = skipped;
+                if (errors.length > 0) {
+                    postingStatus.suggestions.status = { ok: false, reason: errors[0] };
+                }
+                if (posted > 0) {
+                    core.info(`✅ Posted ${posted} fix suggestion(s)`);
+                }
+                if (skipped > 0) {
+                    core.info(`⏭️  Skipped ${skipped} fix suggestion(s)`);
+                }
             }
-            if (skipped > 0) {
-                core.info(`⏭️  Skipped ${skipped} fix suggestion(s)`);
+            catch (error) {
+                const errorMsg = error?.message ?? String(error);
+                postingStatus.suggestions.status = { ok: false, reason: errorMsg };
+                core.warning(`Failed to post fix suggestions: ${errorMsg}`);
             }
         }
+        else if (suggestFixes && !githubToken) {
+            postingStatus.suggestions = {
+                attempted: false,
+                total: fixSuggestions.length,
+                posted: 0,
+                skipped: 0,
+                status: { ok: false, reason: 'No GitHub token provided' }
+            };
+        }
+        else if (suggestFixes && fixSuggestions.length === 0) {
+            postingStatus.suggestions = {
+                attempted: false,
+                total: 0,
+                posted: 0,
+                skipped: 0,
+                status: { ok: false, reason: 'No fix suggestions available' }
+            };
+        }
+        else if (!suggestFixes) {
+            postingStatus.suggestions = {
+                attempted: false,
+                total: fixSuggestions.length,
+                posted: 0,
+                skipped: 0,
+                status: { ok: false, reason: 'Feature disabled (suggest_fixes=false)' }
+            };
+        }
+        await postSummary(result, postingStatus);
     }
     catch (err) {
         core.setFailed(err?.message ?? String(err));

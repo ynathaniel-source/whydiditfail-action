@@ -8,6 +8,7 @@ import { validatePayloadSize } from "./logLimits.js";
 import { postFixSuggestions } from "./review-comments.js";
 import { getGitContext } from "./git-context.js";
 import { PostingStatus } from "./posting-status.js";
+import { extractFixSuggestions } from "./fix-suggestions-extractor.js";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -160,17 +161,19 @@ async function run() {
       return;
     }
 
-    if (suggestFixes && result.fix_suggestions && result.fix_suggestions.length > 0 && githubToken) {
+    const fixSuggestions = extractFixSuggestions(result);
+
+    if (suggestFixes && fixSuggestions.length > 0 && githubToken) {
       postingStatus.suggestions = {
         attempted: true,
-        total: result.fix_suggestions.length,
+        total: fixSuggestions.length,
         posted: 0,
         skipped: 0,
         status: { ok: true }
       };
 
       try {
-        const { posted, skipped, errors } = await postFixSuggestions(githubToken, result.fix_suggestions, result, cleanupOldComments);
+        const { posted, skipped, errors } = await postFixSuggestions(githubToken, fixSuggestions, result, cleanupOldComments);
         
         postingStatus.suggestions.posted = posted;
         postingStatus.suggestions.skipped = skipped;
@@ -193,12 +196,12 @@ async function run() {
     } else if (suggestFixes && !githubToken) {
       postingStatus.suggestions = {
         attempted: false,
-        total: result.fix_suggestions?.length || 0,
+        total: fixSuggestions.length,
         posted: 0,
         skipped: 0,
         status: { ok: false, reason: 'No GitHub token provided' }
       };
-    } else if (suggestFixes && (!result.fix_suggestions || result.fix_suggestions.length === 0)) {
+    } else if (suggestFixes && fixSuggestions.length === 0) {
       postingStatus.suggestions = {
         attempted: false,
         total: 0,
@@ -209,7 +212,7 @@ async function run() {
     } else if (!suggestFixes) {
       postingStatus.suggestions = {
         attempted: false,
-        total: result.fix_suggestions?.length || 0,
+        total: fixSuggestions.length,
         posted: 0,
         skipped: 0,
         status: { ok: false, reason: 'Feature disabled (suggest_fixes=false)' }
