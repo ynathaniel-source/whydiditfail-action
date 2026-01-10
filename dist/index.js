@@ -33086,7 +33086,8 @@ async function postNoSuggestionComment(octokit, context, pullNumber, apiResponse
     }
     const rootCause = apiResponse.root_cause || 'Test failed';
     const category = apiResponse.category || 'unknown';
-    let body = `### 🔧 Analysis Complete\n\n`;
+    let body = `## 🤖 WhyDidItFail\n\n`;
+    body += `### 🔧 Analysis Complete\n\n`;
     body += `> No immediate code fix suggestions available for this failure.\n\n`;
     if (apiResponse) {
         const remaining = apiResponse.remaining ?? 0;
@@ -33197,7 +33198,8 @@ async function postPRCommentFallback(octokit, context, fixSuggestions, pullNumbe
     if (cleanupOldComments) {
         await cleanupOldPRComments(octokit, owner, repo, pullNumber, runId);
     }
-    let body = `### 🔧 Suggested Fixes\n\n`;
+    let body = `## 🤖 WhyDidItFail\n\n`;
+    body += `### 🔧 Suggested Fixes\n\n`;
     body += `> These apply to files **not modified in this PR**, so they're listed here instead of inline suggestions.\n\n`;
     if (apiResponse) {
         const remaining = apiResponse.remaining ?? 0;
@@ -33434,7 +33436,8 @@ function buildInlineSuggestionBody(fix, runId, jobName) {
     const evidence = fix.evidence || `${fix.path}:${fix.line_start}`;
     const tip = fix.tip || '';
     const displayJobName = fix.jobName || jobName;
-    let body = `### ✅ Fix ${errorCode}: ${title}\n\n`;
+    let body = `## 🤖 WhyDidItFail\n\n`;
+    body += `### ✅ Fix ${errorCode}: ${title}\n\n`;
     body += `${rationale}\n\n`;
     body += '```suggestion\n';
     body += fix.replacement;
