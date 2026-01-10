@@ -44,6 +44,7 @@ jobs:
     if: failure()        # Only runs when a job fails
     permissions:
       contents: read
+      actions: read
       pull-requests: write  # Optional: enables inline fix suggestions
     steps:
       - uses: actions/checkout@v4
@@ -190,6 +191,7 @@ analyze-failures:
   if: failure()
   permissions:
     contents: read
+    actions: read
     pull-requests: write  # Optional: enables inline fix suggestions on PRs
   steps:
     - uses: actions/checkout@v4
