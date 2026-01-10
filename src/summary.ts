@@ -1,4 +1,5 @@
 import * as core from "@actions/core";
+import { PostingStatus } from "./posting-status.js";
 
 export interface RenderContext {
   serverUrl: string;
@@ -6,15 +7,16 @@ export interface RenderContext {
   sha: string;
 }
 
-export function formatSummary(explanation: any, ctx?: RenderContext): string {
+export function formatSummary(explanation: any, ctx?: RenderContext, postingStatus?: PostingStatus): string {
   const e = explanation ?? {};
   
   if (e.summary && e.jobs && Array.isArray(e.jobs)) {
-    return formatMultiJobSummary(e, ctx);
+    return formatMultiJobSummary(e, ctx, postingStatus);
   }
   
   if (e.skipped) {
-    let summary = "# ⏭️ Analysis Skipped\n\n";
+    let summary = formatStatusSection(postingStatus);
+    summary += "# ⏭️ Analysis Skipped\n\n";
     
     if (e.code === "LOW_CONFIDENCE") {
       summary += "### 📊 Low Confidence Detection\n\n";
@@ -61,7 +63,8 @@ export function formatSummary(explanation: any, ctx?: RenderContext): string {
   }
   
   if (e.rate_limited) {
-    let summary = "# 🚦 Rate Limit Reached\n\n";
+    let summary = formatStatusSection(postingStatus);
+    summary += "# 🚦 Rate Limit Reached\n\n";
     summary += "> ⚠️ **WhyDidItFail has reached its analysis limit for this repository.**\n\n";
     
     if (e.limit) {
@@ -122,7 +125,9 @@ export function formatSummary(explanation: any, ctx?: RenderContext): string {
     }
   }
 
-  let summary = title === "Failure Analysis" 
+  let summary = formatStatusSection(postingStatus);
+  
+  summary += title === "Failure Analysis" 
     ? `## 🔎 Failure Analysis\n\n`
     : `## 🔎 Failure Analysis · ${title}\n\n`;
   
@@ -255,7 +260,7 @@ export function formatSummary(explanation: any, ctx?: RenderContext): string {
   return summary;
 }
 
-export async function postSummary(explanation: any) {
+export async function postSummary(explanation: any, postingStatus?: PostingStatus) {
   const ctx: RenderContext | undefined = 
     process.env.GITHUB_SERVER_URL && process.env.GITHUB_REPOSITORY && process.env.GITHUB_SHA
       ? {
@@ -265,7 +270,7 @@ export async function postSummary(explanation: any) {
         }
       : undefined;
   
-  const summaryText = formatSummary(explanation, ctx);
+  const summaryText = formatSummary(explanation, ctx, postingStatus);
   await core.summary.addRaw(summaryText).write();
 }
 
@@ -341,12 +346,13 @@ function formatLocationLink(loc: any, ctx: RenderContext): string {
   return `- [${labelParts.join(": ")}](${url})`;
 }
 
-function formatMultiJobSummary(result: any, ctx?: RenderContext): string {
+function formatMultiJobSummary(result: any, ctx?: RenderContext, postingStatus?: PostingStatus): string {
   const summary = result.summary || {};
   const jobs = result.jobs || [];
   const rootCauses = result.rootCauses || [];
 
-  let output = "## 🔎 Multi-Job Failure Analysis\n\n";
+  let output = formatStatusSection(postingStatus);
+  output += "## 🔎 Multi-Job Failure Analysis\n\n";
   
   // Usage info at the top
   const successfulAnalyses = jobs.filter((j: any) => j.success && !j.skipped && !j.isCascadingFailure).length;
@@ -572,4 +578,53 @@ function renderJobWhere(job: any, ctx?: RenderContext): string {
     }
   }
   return renderMd(job.where ?? "Unknown");
+}
+
+function formatStatusSection(status?: PostingStatus): string {
+  if (!status) return "";
+
+  const lines: string[] = [];
+  lines.push("## 📊 Status\n");
+  lines.push("- ✅ Analysis completed");
+
+  if (status.suggestions) {
+    const s = status.suggestions;
+    if (s.attempted) {
+      if (s.status.ok) {
+        if (s.posted === s.total) {
+          lines.push(`- ✅ Posted ${s.posted} inline suggestion${s.posted !== 1 ? 's' : ''}`);
+        } else if (s.posted > 0) {
+          lines.push(`- ⚠️ Posted ${s.posted} of ${s.total} inline suggestions: Some failed`);
+        } else {
+          lines.push(`- ⚠️ Failed to post ${s.total} suggestion${s.total !== 1 ? 's' : ''}: Unknown error`);
+        }
+      } else {
+        if (s.posted > 0) {
+          lines.push(`- ⚠️ Posted ${s.posted} of ${s.total} inline suggestions: ${s.status.reason}`);
+        } else {
+          lines.push(`- ⚠️ Failed to post suggestions: ${s.status.reason}`);
+        }
+      }
+    } else {
+      const reason = !s.status.ok ? s.status.reason : 'Unknown reason';
+      lines.push(`- ℹ️ Suggestions not attempted: ${reason}`);
+    }
+  }
+
+  if (status.prComment) {
+    const c = status.prComment;
+    if (c.attempted) {
+      if (c.status.ok) {
+        lines.push("- ✅ Posted PR comment");
+      } else {
+        lines.push(`- ⚠️ Failed to post PR comment: ${c.status.reason}`);
+      }
+    } else {
+      const reason = !c.status.ok ? c.status.reason : 'Unknown reason';
+      lines.push(`- ℹ️ PR comment not attempted: ${reason}`);
+    }
+  }
+
+  lines.push("\n---\n");
+  return lines.join("\n");
 }

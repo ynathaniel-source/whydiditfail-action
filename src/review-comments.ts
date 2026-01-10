@@ -24,36 +24,57 @@ export interface FixSuggestion {
   tip?: string;
 }
 
+export interface PostFixSuggestionsResult {
+  posted: number;
+  skipped: number;
+  errors: string[];
+}
+
 export async function postFixSuggestions(
   token: string,
   fixSuggestions: FixSuggestion[],
   apiResponse?: any,
   cleanupOldComments: boolean = false
-): Promise<{ posted: number; skipped: number }> {
+): Promise<PostFixSuggestionsResult> {
   const context = github.context;
   const octokit = github.getOctokit(token);
   const isPR = context.payload.pull_request !== undefined;
   const commitSha = context.sha;
+  const errors: string[] = [];
 
   if (!fixSuggestions || fixSuggestions.length === 0) {
     if (isPR && apiResponse?.root_cause) {
       const pullNumber = getPullNumber(context);
-      await postNoSuggestionComment(octokit, context, pullNumber, apiResponse, cleanupOldComments);
-      return { posted: 1, skipped: 0 };
+      try {
+        await postNoSuggestionComment(octokit, context, pullNumber, apiResponse, cleanupOldComments);
+        return { posted: 1, skipped: 0, errors: [] };
+      } catch (error) {
+        const errorMsg = toErrorMessage(error);
+        errors.push(errorMsg);
+        return { posted: 0, skipped: 0, errors };
+      }
     }
-    return { posted: 0, skipped: 0 };
+    return { posted: 0, skipped: 0, errors: [] };
   }
 
   let posted = 0;
   let skipped = 0;
 
   if (isPR) {
-    posted = await postPRReviewComments(octokit, context, fixSuggestions, commitSha, apiResponse, cleanupOldComments);
+    const result = await postPRReviewComments(octokit, context, fixSuggestions, commitSha, apiResponse, cleanupOldComments);
+    posted = result.posted;
+    if (result.error) {
+      errors.push(result.error);
+    }
   } else {
-    posted = await postCommitComments(octokit, context, fixSuggestions, commitSha);
+    const result = await postCommitComments(octokit, context, fixSuggestions, commitSha);
+    posted = result.posted;
+    if (result.error) {
+      errors.push(result.error);
+    }
   }
 
-  return { posted, skipped: fixSuggestions.length - posted };
+  return { posted, skipped: fixSuggestions.length - posted, errors };
 }
 
 async function postNoSuggestionComment(
@@ -126,6 +147,11 @@ async function postNoSuggestionComment(
   }
 }
 
+interface PostingResult {
+  posted: number;
+  error?: string;
+}
+
 async function postPRReviewComments(
   octokit: ReturnType<typeof github.getOctokit>,
   context: typeof github.context,
@@ -133,7 +159,7 @@ async function postPRReviewComments(
   commitSha: string,
   apiResponse?: any,
   cleanupOldComments: boolean = false
-): Promise<number> {
+): Promise<PostingResult> {
   const { owner, repo } = context.repo;
   const pullNumber = getPullNumber(context);
   const runId = context.runId;
@@ -186,17 +212,20 @@ async function postPRReviewComments(
     });
 
     core.info(`Posted ${comments.length} inline fix suggestions to PR #${pullNumber}`);
-    return fixSuggestions.length;
+    return { posted: fixSuggestions.length };
   } catch (error: any) {
     if (error?.status === 403 || error?.message?.includes('Resource not accessible')) {
-      core.warning(`⚠️  Cannot post PR review comments: missing 'pull-requests: write' permission. Add it to your workflow to enable inline fix suggestions.`);
-      return 0;
+      const errorMsg = "Missing 'pull-requests: write' permission";
+      core.warning(`⚠️  Cannot post PR review comments: ${errorMsg}. Add it to your workflow to enable inline fix suggestions.`);
+      return { posted: 0, error: errorMsg };
     } else if (error?.status === 422 || error?.message?.includes('Path could not be resolved')) {
       core.info(`Files not in PR diff, falling back to PR comment`);
-      return await postPRCommentFallback(octokit, context, fixSuggestions, pullNumber, apiResponse, cleanupOldComments);
+      const fallbackResult = await postPRCommentFallback(octokit, context, fixSuggestions, pullNumber, apiResponse, cleanupOldComments);
+      return fallbackResult;
     } else {
-      core.warning(`Failed to post PR review comments: ${error}`);
-      return 0;
+      const errorMsg = toErrorMessage(error);
+      core.warning(`Failed to post PR review comments: ${errorMsg}`);
+      return { posted: 0, error: errorMsg };
     }
   }
 }
@@ -208,7 +237,7 @@ async function postPRCommentFallback(
   pullNumber: number,
   apiResponse?: any,
   cleanupOldComments: boolean = false
-): Promise<number> {
+): Promise<PostingResult> {
   const { owner, repo } = context.repo;
   const runId = context.runId;
   const jobName = context.job;
@@ -270,10 +299,11 @@ async function postPRCommentFallback(
     });
 
     core.info(`Posted fix suggestions as PR comment #${pullNumber}`);
-    return fixSuggestions.length;
+    return { posted: fixSuggestions.length };
   } catch (error) {
-    core.warning(`Failed to post PR comment: ${error}`);
-    return 0;
+    const errorMsg = toErrorMessage(error);
+    core.warning(`Failed to post PR comment: ${errorMsg}`);
+    return { posted: 0, error: errorMsg };
   }
 }
 
@@ -400,10 +430,11 @@ async function postCommitComments(
   context: typeof github.context,
   fixSuggestions: FixSuggestion[],
   commitSha: string
-): Promise<number> {
+): Promise<PostingResult> {
   const { owner, repo } = context.repo;
 
   let posted = 0;
+  const errors: string[] = [];
 
   for (const fix of fixSuggestions) {
     try {
@@ -420,7 +451,11 @@ async function postCommitComments(
 
       posted++;
     } catch (error) {
-      core.warning(`Failed to post commit comment for ${fix.path}: ${error}`);
+      const errorMsg = toErrorMessage(error);
+      core.warning(`Failed to post commit comment for ${fix.path}: ${errorMsg}`);
+      if (errors.length === 0) {
+        errors.push(errorMsg);
+      }
     }
   }
 
@@ -428,7 +463,10 @@ async function postCommitComments(
     core.info(`Posted ${posted} fix suggestions as commit comments`);
   }
 
-  return posted;
+  return { 
+    posted, 
+    error: errors.length > 0 ? errors[0] : undefined 
+  };
 }
 
 function groupFixesByFile(fixes: FixSuggestion[]): Record<string, FixSuggestion[]> {
@@ -554,4 +592,17 @@ function buildCombinedFallbackBody(fixes: FixSuggestion[], filePath: string): st
   });
   
   return body;
+}
+
+function toErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (typeof error === 'string') {
+    return error;
+  }
+  if (error && typeof error === 'object' && 'message' in error) {
+    return String((error as any).message);
+  }
+  return String(error);
 }

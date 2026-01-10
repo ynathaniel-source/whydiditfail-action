@@ -209,3 +209,23 @@ function truncate(s: string, maxBytes: number): string {
   
   return b.subarray(start).toString("utf8");
 }
+
+export function extractFailedStepName(logs: string): string {
+  const lines = logs.split('\n');
+  
+  for (const line of lines) {
+    if (isStepBoundary(line) && containsErrorIndicator(line)) {
+      const runMatch = line.match(/^Run (.+)/);
+      if (runMatch) {
+        return runMatch[1].trim();
+      }
+      
+      const groupMatch = line.match(/##\[group\](.+)/);
+      if (groupMatch) {
+        return groupMatch[1].trim();
+      }
+    }
+  }
+  
+  return "unknown";
+}

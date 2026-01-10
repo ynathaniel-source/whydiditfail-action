@@ -7,6 +7,7 @@ import { explainFailure, analyzeWithPolling } from "./client.js";
 import { validatePayloadSize } from "./logLimits.js";
 import { postFixSuggestions } from "./review-comments.js";
 import { getGitContext } from "./git-context.js";
+import { PostingStatus } from "./posting-status.js";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -149,22 +150,73 @@ async function run() {
       core.warning(`mode=${mode} not implemented in scaffold; using summary`);
     }
 
-    await postSummary(result);
+    const postingStatus: PostingStatus = {
+      analysisCompleted: true
+    };
 
     if (result.skipped) {
       core.info(`⏭️ Analysis skipped: ${result.reason || 'Low confidence'}`);
+      await postSummary(result, postingStatus);
       return;
     }
 
     if (suggestFixes && result.fix_suggestions && result.fix_suggestions.length > 0 && githubToken) {
-      const { posted, skipped } = await postFixSuggestions(githubToken, result.fix_suggestions, result, cleanupOldComments);
-      if (posted > 0) {
-        core.info(`✅ Posted ${posted} fix suggestion(s)`);
+      postingStatus.suggestions = {
+        attempted: true,
+        total: result.fix_suggestions.length,
+        posted: 0,
+        skipped: 0,
+        status: { ok: true }
+      };
+
+      try {
+        const { posted, skipped, errors } = await postFixSuggestions(githubToken, result.fix_suggestions, result, cleanupOldComments);
+        
+        postingStatus.suggestions.posted = posted;
+        postingStatus.suggestions.skipped = skipped;
+
+        if (errors.length > 0) {
+          postingStatus.suggestions.status = { ok: false, reason: errors[0] };
+        }
+
+        if (posted > 0) {
+          core.info(`✅ Posted ${posted} fix suggestion(s)`);
+        }
+        if (skipped > 0) {
+          core.info(`⏭️  Skipped ${skipped} fix suggestion(s)`);
+        }
+      } catch (error: any) {
+        const errorMsg = error?.message ?? String(error);
+        postingStatus.suggestions.status = { ok: false, reason: errorMsg };
+        core.warning(`Failed to post fix suggestions: ${errorMsg}`);
       }
-      if (skipped > 0) {
-        core.info(`⏭️  Skipped ${skipped} fix suggestion(s)`);
-      }
+    } else if (suggestFixes && !githubToken) {
+      postingStatus.suggestions = {
+        attempted: false,
+        total: result.fix_suggestions?.length || 0,
+        posted: 0,
+        skipped: 0,
+        status: { ok: false, reason: 'No GitHub token provided' }
+      };
+    } else if (suggestFixes && (!result.fix_suggestions || result.fix_suggestions.length === 0)) {
+      postingStatus.suggestions = {
+        attempted: false,
+        total: 0,
+        posted: 0,
+        skipped: 0,
+        status: { ok: false, reason: 'No fix suggestions available' }
+      };
+    } else if (!suggestFixes) {
+      postingStatus.suggestions = {
+        attempted: false,
+        total: result.fix_suggestions?.length || 0,
+        posted: 0,
+        skipped: 0,
+        status: { ok: false, reason: 'Feature disabled (suggest_fixes=false)' }
+      };
     }
+
+    await postSummary(result, postingStatus);
   } catch (err: any) {
     core.setFailed(err?.message ?? String(err));
   }
